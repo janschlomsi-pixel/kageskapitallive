@@ -176,7 +176,7 @@ export function DepotPolicePage() {
           contractStartOneTimeEUR: policyContractStartOneTimeEUR,
         },
       }, result);
-      captureLead(reqData, blob, fileName, "depot-vs-privatrente");
+      await captureLead(reqData, blob, fileName, "depot-vs-privatrente");
     }
   };
 

@@ -139,7 +139,7 @@ export function PensionPage() {
     };
 
     const { blob, fileName } = await generatePensionPdf(reqData, pdfResult, pdfInput);
-    captureLead(reqData, blob, fileName, "altersvorsorge");
+    await captureLead(reqData, blob, fileName, "altersvorsorge");
   };
 
   const result = useMemo(() => {

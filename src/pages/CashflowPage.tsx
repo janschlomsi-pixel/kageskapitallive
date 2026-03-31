@@ -677,7 +677,7 @@ export function CashflowPage() {
       surplusReturnRate, surplusInflationRate, surplusInterestRate,
     };
     const { blob, fileName } = await generateCashflowPdf(reqData, result as CashflowPdfResult, pdfInput);
-    captureLead(reqData, blob, fileName, "cashflow");
+    await captureLead(reqData, blob, fileName, "cashflow");
   };
 
   // Auto-Vorbelegung: Startkapital = kurzfristiges Vermögen minus Liquiditätsziel
