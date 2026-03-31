@@ -14,7 +14,7 @@ import type { PdfRequestData } from "../components/ui/PdfRequestModal";
 // ──────────────────────────────────────────────
 // Configure your Google Apps Script Web App URL here
 // ──────────────────────────────────────────────
-const SCRIPT_URL = (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_GOOGLE_SCRIPT_URL;
+const SCRIPT_URL = ((import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_GOOGLE_SCRIPT_URL || "").trim();
 
 export type LeadSource = "cashflow" | "altersvorsorge" | "depot-vs-privatrente";
 
