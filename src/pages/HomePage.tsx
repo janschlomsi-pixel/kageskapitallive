@@ -1,6 +1,10 @@
+import { useRef, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { InstaVideoPlayer } from "@/components/ui/InstaVideoPlayer";
+
+// Track if homepage was already shown this session (no re-animation)
+let hasAnimated = false;
 
 const resources = [
   {
@@ -85,25 +89,43 @@ const calculators = [
 ];
 
 export function HomePage() {
+  const [animate, setAnimate] = useState(!hasAnimated);
+
+  useEffect(() => {
+    if (!hasAnimated) {
+      hasAnimated = true;
+    }
+  }, []);
+
+  // Animation classes: only on first visit, otherwise instant
+  const anim = (delay: string) =>
+    animate
+      ? `animate-fade-in-up opacity-0`
+      : "";
+
+  const animStyle = (delayMs: string) =>
+    animate
+      ? { animationDelay: delayMs, animationFillMode: 'forwards' as const }
+      : {};
+
   return (
     <Layout transparentHeader>
       {/* ============ STARTSEITE / HERO SECTION ============ */}
       <section className="relative min-h-0 lg:min-h-[80vh] flex items-center overflow-hidden bg-[#0f172a]">
-        {/* Decorative Background Elements */}
-        <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-[#d4af37] rounded-full blur-[120px] opacity-10" />
-        <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-96 h-96 bg-blue-500 rounded-full blur-[120px] opacity-10" />
-        
+        {/* Decorative Background — lightweight gradient instead of GPU-heavy blur */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#d4af37]/5 via-transparent to-blue-500/5" />
+
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24 w-full">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Column: Text & CTA */}
             <div className="max-w-2xl">
-              <h1 className="animate-fade-in-up opacity-0" style={{ animationDelay: '100ms', animationFillMode: 'forwards' }}>
+              <h1 className={anim('100ms')} style={animStyle('100ms')}>
                 <span className="block text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight tracking-tight">
                   Wohlstand und Freiheit sind <span className="text-[#d4af37]">kein Privileg.</span>
                 </span>
               </h1>
 
-              <div className="mt-8 flex flex-wrap gap-4 animate-fade-in-up opacity-0" style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}>
+              <div className={`mt-8 flex flex-wrap gap-4 ${anim('200ms')}`} style={animStyle('200ms')}>
                 <a href="#links" className="px-8 py-4 bg-[#d4af37] text-[#0f172a] font-bold rounded-lg shadow-lg hover:bg-yellow-500 transition-all hover:scale-105">
                   Alle Links
                 </a>
@@ -113,7 +135,7 @@ export function HomePage() {
               </div>
 
               {/* Social Icons */}
-              <div className="mt-8 flex gap-6 items-center animate-fade-in-up opacity-0" style={{ animationDelay: '300ms', animationFillMode: 'forwards' }}>
+              <div className={`mt-8 flex gap-6 items-center ${anim('300ms')}`} style={animStyle('300ms')}>
                 <a href="https://www.tiktok.com/@kargeskapital?_r=1&_t=ZG-94n6HYCmo0P" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 hover:text-[#d4af37] transition-all">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 15.68a6.34 6.34 0 0012.67-1.55V8.15a8.32 8.32 0 004.77 1.52v-3.4a4.85 4.85 0 01-2.85-.58z"/></svg>
                 </a>
@@ -130,11 +152,11 @@ export function HomePage() {
             </div>
 
             {/* Right Column: Photo */}
-            <div className="hidden lg:flex relative -mr-10 h-[600px] items-end justify-center animate-fade-in-up opacity-0" style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}>
+            <div className={`hidden lg:flex relative -mr-10 h-[600px] items-end justify-center ${anim('200ms')}`} style={animStyle('200ms')}>
               <img
                 src="/images/julian-karges.jpg"
                 alt="Julian Karges"
-                className="h-full w-auto object-contain drop-shadow-2xl"
+                className="h-full w-auto object-contain"
               />
             </div>
           </div>
