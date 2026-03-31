@@ -73,15 +73,16 @@ export async function captureLead(
             pdfBase64,
         };
 
-        const response = await fetch(SCRIPT_URL, {
+        // mode: "no-cors" is required because Google Apps Script
+        // returns a 302 redirect which triggers CORS errors in browsers.
+        // We can't read the response, but the request is sent successfully.
+        await fetch(SCRIPT_URL, {
             method: "POST",
-            headers: { "Content-Type": "text/plain" }, // text/plain avoids CORS preflight
+            headers: { "Content-Type": "text/plain" },
             body: JSON.stringify(payload),
+            mode: "no-cors",
+            redirect: "follow",
         });
-
-        if (!response.ok) {
-            console.warn("[LeadCapture] Response not OK:", response.status);
-        }
     } catch (err) {
         // Never let lead capture break the user flow
         console.warn("[LeadCapture] Failed to send lead:", err);
