@@ -8,7 +8,7 @@ const resources = [
     description: "Aktuelle Entwicklungen bequem per WhatsApp",
     url: "https://04c43c09.sibforms.com/serve/MUIFAA1I2i4M7oolsAMyesdpoHC2sAcUD_Yu4nAqL5RrmZ9GGQX-93Q_zKZxn1PmPQvJepK3pWFOiHvVIqSEQdYq0mL8WwZ8GuoK2f1iEKi8j04OsdyaPhQmmPBT1Msv5qvg4HbNOGbWVDNMYaE18g6pG0etZrJ6LVH2c0ZPm710vkCTA6XmUbQXMd5t5d-x4UhBlyvOvITVnjwa",
     icon: (
-      <img src="/images/kapitalmarkt-update.png" alt="Kapitalmarkt Update" className="w-full h-full object-cover rounded-xl" />
+      <img src="/images/kapitalmarkt-update.jpg" alt="Kapitalmarkt Update" loading="lazy" className="w-full h-full object-cover rounded-xl" />
     )
   },
   {
@@ -16,7 +16,7 @@ const resources = [
     description: "Mein Onlineshop für exklusive Produkte",
     url: "https://limitless-shop.de",
     icon: (
-      <img src="/images/limitless-shop.png" alt="Limitless Shop" className="w-full h-full object-cover rounded-xl" />
+      <img src="/images/limitless-shop.jpg" alt="Limitless Shop" loading="lazy" className="w-full h-full object-cover rounded-xl" />
     )
   },
   {
@@ -24,7 +24,7 @@ const resources = [
     description: "Kostenloses Immobilien & Finanz-Webinar",
     url: "https://04c43c09.sibforms.com/serve/MUIFAEPwYqM3SiZe7OSseEj5TQnkhYLg59E7S4FNBktlasVG2n2nt3OZmMglcBMZD4lWCjk_Zrqq-BBqQM7u-B6d8Ghn4_X0Y6y66r_XLT3ko5MNMqzTe3SJATSM_gYKa9eIs-CrEo_huEKiM3wTj4bhwzpMP-jTBCATOCc56Vty85N5wFh6ClGf4OYCg5nma3xarYikvaepldUF",
     icon: (
-      <img src="/images/webinar.png" alt="Webinar" className="w-full h-full object-cover rounded-xl" />
+      <img src="/images/webinar.jpg" alt="Webinar" loading="lazy" className="w-full h-full object-cover rounded-xl" />
     )
   },
   {
@@ -132,7 +132,7 @@ export function HomePage() {
             {/* Right Column: Photo */}
             <div className="hidden lg:flex relative -mr-10 h-[600px] items-end justify-center animate-fade-in-up opacity-0" style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}>
               <img
-                src="/images/julian-karges.png"
+                src="/images/julian-karges.jpg"
                 alt="Julian Karges"
                 className="h-full w-auto object-contain drop-shadow-2xl"
               />
