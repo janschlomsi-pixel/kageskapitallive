@@ -154,7 +154,7 @@ export function HomePage() {
             {/* Right Column: Photo */}
             <div className={`hidden lg:flex relative -mr-10 h-[600px] items-end justify-center ${anim('200ms')}`} style={animStyle('200ms')}>
               <img
-                src="/images/julian-karges.jpg"
+                src="/images/julian-karges.png"
                 alt="Julian Karges"
                 className="h-full w-auto object-contain"
               />
