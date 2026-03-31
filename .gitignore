@@ -2,6 +2,7 @@ node_modules
 dist
 .playwright-cli
 tmp/
+.claude/
 
 # macOS
 .DS_Store
