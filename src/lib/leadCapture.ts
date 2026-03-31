@@ -1,10 +1,12 @@
 /**
- * Lead Capture — sends contact data + PDF copy to Google Sheets via Apps Script Web App.
+ * Lead Capture — sends contact data + PDF to Google Sheets
+ * via our own Vercel serverless proxy (/api/lead).
+ *
+ * This avoids all CORS and mobile browser issues because
+ * the request stays on the same domain.
  */
 
 import type { PdfRequestData } from "../components/ui/PdfRequestModal";
-
-const SCRIPT_URL = ((import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_GOOGLE_SCRIPT_URL || "").trim();
 
 export type LeadSource = "cashflow" | "altersvorsorge" | "depot-vs-privatrente";
 
@@ -24,9 +26,8 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Send lead data to Google Sheets. Uses two strategies:
- * 1. First: sendBeacon with just contact info (tiny payload, works on all mobile browsers)
- * 2. Then: try to send PDF via fetch in background (best effort)
+ * Send lead data + PDF to Google Sheets via /api/lead proxy.
+ * Same-origin request — no CORS issues, works on all devices.
  */
 export async function captureLead(
     data: PdfRequestData,
@@ -34,15 +35,10 @@ export async function captureLead(
     pdfFileName: string,
     source: LeadSource,
 ): Promise<void> {
-    if (!SCRIPT_URL) {
-        console.warn("[LeadCapture] No SCRIPT_URL configured");
-        return;
-    }
-
     try {
-        // Step 1: Send lead data immediately via sendBeacon (guaranteed on mobile)
-        // sendBeacon survives page navigations and component unmounts
-        const leadData = {
+        const pdfBase64 = await blobToBase64(pdfBlob);
+
+        const payload = {
             firstName: data.firstName,
             lastName: data.lastName,
             email: data.email,
@@ -50,44 +46,16 @@ export async function captureLead(
             source,
             timestamp: new Date().toISOString(),
             pdfFileName,
-            pdfBase64: "", // no PDF in beacon — payload must stay small
+            pdfBase64,
         };
 
-        const beaconSent = navigator.sendBeacon(
-            SCRIPT_URL,
-            new Blob([JSON.stringify(leadData)], { type: "text/plain" }),
-        );
-
-        if (!beaconSent) {
-            // Fallback: try fetch if sendBeacon fails
-            await fetch(SCRIPT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify(leadData),
-                mode: "no-cors",
-            });
-        }
-
-        // Step 2: Try to send PDF separately in background (best effort, non-blocking)
-        // This might fail on mobile — that's OK, the lead is already saved
-        try {
-            const pdfBase64 = await blobToBase64(pdfBlob);
-            const pdfPayload = {
-                ...leadData,
-                pdfBase64,
-                _updateExisting: true, // signal to update, not create new row
-            };
-            fetch(SCRIPT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify(pdfPayload),
-                mode: "no-cors",
-            }); // intentionally not awaited
-        } catch {
-            // PDF upload failed — that's OK
-        }
-
+        await fetch("/api/lead", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
     } catch (err) {
+        // Never let lead capture break the user flow
         console.warn("[LeadCapture] Failed to send lead:", err);
     }
 }
