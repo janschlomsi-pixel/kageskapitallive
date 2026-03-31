@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { PdfRequestModal, PdfRequestData } from "@/components/ui/PdfRequestModal";
 import { generatePensionPdf, type PensionPdfInput, type PensionPdfResult } from "@/lib/pensionPdfGenerator";
+import { captureLead } from "@/lib/leadCapture";
 import { Layout } from "@/components/layout/Layout";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -38,35 +39,41 @@ function calculateFV(monthlyPayment: number, annualRate: number, years: number, 
 }
 
 export function PensionPage() {
-  const [mode, setMode] = useState<Mode>("versorgungswerk");
+  const [mode, setMode] = useState<Mode>("employee");
 
   // Person
-  const [dob, setDob] = useState<Date | undefined>(new Date("1985-06-15"));
-  const [jobEntry, setJobEntry] = useState<Date | undefined>(new Date("2012-01-01"));
-  const [monthlyGross, setMonthlyGross] = useState(8500);
+  const [dob, setDob] = useState<Date | undefined>(new Date("2001-01-15"));
+  const [jobEntry, setJobEntry] = useState<Date | undefined>(new Date("2024-01-01"));
+  const [monthlyGross, setMonthlyGross] = useState(0);
   const [churchTax, setChurchTax] = useState<YesNo>("no");
   const [retirementAge, setRetirementAge] = useState(67);
   const [lifeExpectancy, setLifeExpectancy] = useState(90);
 
   // Health
-  const [healthType, setHealthType] = useState<"legal" | "private">("private");
+  const [healthType, setHealthType] = useState<"legal" | "private">("legal");
   const [kvdr, setKvdr] = useState<YesNo>("yes");
-  const [pkvPremium, setPkvPremium] = useState(450);
+  const [pkvPremium, setPkvPremium] = useState(0);
 
   // Versorgungswerk
   const [hasNotice, setHasNotice] = useState<YesNo>("no");
   const [noticeTiming, setNoticeTiming] = useState<"current" | "retirement">("retirement");
-  const [noticeAmount, setNoticeAmount] = useState(3500);
+  const [noticeAmount, setNoticeAmount] = useState(0);
   const [factorToGrv, setFactorToGrv] = useState(1.3);
   const [ruleAge, setRuleAge] = useState(67);
   const [pensionGrowthPct, setPensionGrowthPct] = useState(1.5);
   const [vwHealthType, setVwHealthType] = useState<"legal" | "private">("private");
   const [healthGrowthPct, setHealthGrowthPct] = useState(3);
   const [vwKvdr] = useState<YesNo>("yes");
-  const [vwPkvPremium, setVwPkvPremium] = useState(650);
+  const [vwPkvPremium, setVwPkvPremium] = useState(0);
+
+  // Self-employed GRV
+  const [selfGrvEnabled, setSelfGrvEnabled] = useState(false);
+  const [selfGrvHasNotice, setSelfGrvHasNotice] = useState<YesNo>("no");
+  const [selfGrvNoticeTiming, setSelfGrvNoticeTiming] = useState<"current" | "retirement">("retirement");
+  const [selfGrvNoticeAmount, setSelfGrvNoticeAmount] = useState(0);
 
   // Target
-  const [targetNetToday, setTargetNetToday] = useState(4500);
+  const [targetNetToday, setTargetNetToday] = useState(0);
 
   // Assumptions-DEFAULTS: Anspar 7%, Entnahme 2%
   const [inflationPct, setInflationPct] = useState(2.5);
@@ -75,8 +82,8 @@ export function PensionPage() {
   const [adjustForPurchasePower, setAdjustForPurchasePower] = useState(false);
 
   // Investment
-  const [desiredSaving, setDesiredSaving] = useState(500);
-  const [initialLumpSum, setInitialLumpSum] = useState(20000);
+  const [desiredSaving, setDesiredSaving] = useState(0);
+  const [initialLumpSum, setInitialLumpSum] = useState(0);
 
   // Disable global scrolling on desktop
   useEffect(() => {
@@ -101,7 +108,7 @@ export function PensionPage() {
   }, []);
 
   const [showPdfModal, setShowPdfModal] = useState(false);
-  const handlePdfGenerate = (reqData: PdfRequestData) => {
+  const handlePdfGenerate = async (reqData: PdfRequestData) => {
     if (!data) return;
 
     const fullGapNominal = Math.max(0, data.targetInflated - data.pensionNet);
@@ -131,7 +138,8 @@ export function PensionPage() {
       retirementYear: data.retirementYear, monthsToRet: data.monthsToRet,
     };
 
-    generatePensionPdf(reqData, pdfResult, pdfInput);
+    const { blob, fileName } = await generatePensionPdf(reqData, pdfResult, pdfInput);
+    captureLead(reqData, blob, fileName, "altersvorsorge");
   };
 
   const result = useMemo(() => {
@@ -167,6 +175,12 @@ export function PensionPage() {
         kvdr: vwKvdr,
         pkvPremium: vwPkvPremium,
       },
+      selfEmployedGrv: {
+        enabled: selfGrvEnabled,
+        hasNotice: selfGrvHasNotice,
+        noticeTiming: selfGrvNoticeTiming,
+        noticeAmount: selfGrvNoticeAmount,
+      },
     });
   }, [
     mode, dob, jobEntry, monthlyGross, churchTax, retirementAge, lifeExpectancy,
@@ -174,6 +188,7 @@ export function PensionPage() {
     returnTakeoutPct, adjustForPurchasePower, desiredSaving, initialLumpSum,
     hasNotice, noticeTiming, noticeAmount, factorToGrv, ruleAge, pensionGrowthPct,
     vwHealthType, healthGrowthPct, vwKvdr, vwPkvPremium,
+    selfGrvEnabled, selfGrvHasNotice, selfGrvNoticeTiming, selfGrvNoticeAmount,
   ]);
 
   const isOk = result.ok;
@@ -247,17 +262,17 @@ export function PensionPage() {
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-2 lg:h-[calc(100vh-80px)] lg:overflow-hidden">
           {/* Mode Toggle-kompakter auf Desktop */}
           <div className="flex justify-center mb-4 lg:mb-3">
-            <div className="inline-flex bg-gray-100 p-1 rounded-xl">
-              {(["versorgungswerk", "employee"] as Mode[]).map((m) => (
+            <div className="inline-flex bg-gray-100 p-1 rounded-xl w-full max-w-sm sm:w-auto">
+              {(["employee", "selfEmployed", "versorgungswerk"] as Mode[]).map((m) => (
                 <button
                   key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 ${mode === m
+                  onClick={() => { setMode(m); if (m === "selfEmployed") setHealthType("private"); else if (m === "employee") setHealthType("legal"); }}
+                  className={`flex-1 sm:flex-none px-2 sm:px-4 py-2 rounded-lg text-[11px] sm:text-sm font-semibold transition-all duration-300 whitespace-nowrap ${mode === m
                       ? "bg-white shadow-md text-[#059669]"
                       : "text-gray-600 hover:text-gray-900"
                     } `}
                 >
-                  {m === "versorgungswerk" ? "Versorgungswerk" : "Angestellt"}
+                  {m === "versorgungswerk" ? "Versorgungswerk" : m === "employee" ? "Angestellt" : "Selbstständig"}
                 </button>
               ))}
             </div>
@@ -267,52 +282,187 @@ export function PensionPage() {
           <div className="grid lg:grid-cols-[280px_1fr_300px] xl:grid-cols-[300px_1fr_340px] gap-4 lg:gap-5 lg:h-[calc(100vh-140px)]">
             {/* Column 1: Inputs (schmal, eigenes Scrolling) */}
             <div className="space-y-3 lg:h-full lg:overflow-y-auto lg:pr-2 lg:scrollbar-thin" style={{ scrollbarGutter: 'stable' }}>
-              <Accordion title="Angaben zur Person" defaultOpen>
-                <div className="space-y-4 pt-4">
-                  <DatePicker
-                    label="Geburtsdatum"
-                    value={dob}
-                    onChange={(date) => setDob(date)}
-                  />
-                  <DatePicker
-                    label="Berufseintritt"
-                    value={jobEntry}
-                    onChange={(date) => setJobEntry(date)}
-                  />
-                  <Input
-                    label="Monatliches Brutto"
-                    type="number"
-                    value={monthlyGross}
-                    onChange={(e) => setMonthlyGross(parseFloat(e.target.value) || 0)}
-                    suffix="€"
-                  />
-                  <Select
-                    label="Kirchensteuer"
-                    value={churchTax}
-                    onChange={(e) => setChurchTax(e.target.value as YesNo)}
-                    options={[
-                      { value: "no", label: "Nein" },
-                      { value: "yes", label: "Ja" },
-                    ]}
-                  />
-                  <Slider
-                    label="Renteneintrittsalter"
-                    valueLabel={`${retirementAge} Jahre`}
-                    min={55}
-                    max={75}
-                    value={retirementAge}
-                    onChange={(e) => setRetirementAge(parseInt(e.target.value))}
-                  />
-                  <Slider
-                    label="Lebenserwartung"
-                    valueLabel={`${lifeExpectancy} Jahre`}
-                    min={70}
-                    max={100}
-                    value={lifeExpectancy}
-                    onChange={(e) => setLifeExpectancy(parseInt(e.target.value))}
-                  />
-                </div>
-              </Accordion>
+              {mode === "selfEmployed" ? (
+                <>
+                <Accordion title="Angaben zur Person" defaultOpen>
+                  <div className="space-y-4 pt-4">
+                    <DatePicker
+                      label="Geburtsdatum"
+                      value={dob}
+                      onChange={(date) => setDob(date)}
+                    />
+                    <Slider
+                      label="Renteneintrittsalter"
+                      valueLabel={`${retirementAge} Jahre`}
+                      min={55}
+                      max={75}
+                      value={retirementAge}
+                      onChange={(e) => setRetirementAge(parseInt(e.target.value))}
+                    />
+                    <Slider
+                      label="Lebenserwartung"
+                      valueLabel={`${lifeExpectancy} Jahre`}
+                      min={70}
+                      max={100}
+                      value={lifeExpectancy}
+                      onChange={(e) => setLifeExpectancy(parseInt(e.target.value))}
+                    />
+                  </div>
+                </Accordion>
+
+                <Accordion title="Annahme zur Rente" defaultOpen>
+                  <div className="space-y-4 pt-4">
+                    <Select
+                      label="Gesetzliche Rentenversicherung"
+                      value={selfGrvEnabled ? "yes" : "no"}
+                      onChange={(e) => setSelfGrvEnabled(e.target.value === "yes")}
+                      options={[
+                        { value: "no", label: "Nein" },
+                        { value: "yes", label: "Ja" },
+                      ]}
+                    />
+                    {selfGrvEnabled && (
+                      <>
+                        <Select
+                          label="Liegt aktueller Rentenbescheid vor?"
+                          value={selfGrvHasNotice}
+                          onChange={(e) => setSelfGrvHasNotice(e.target.value as YesNo)}
+                          options={[
+                            { value: "no", label: "Nein" },
+                            { value: "yes", label: "Ja" },
+                          ]}
+                        />
+                        {selfGrvHasNotice === "yes" ? (
+                          <>
+                            <Select
+                              label="Zeitpunkt der Mitteilung"
+                              value={selfGrvNoticeTiming}
+                              onChange={(e) => setSelfGrvNoticeTiming(e.target.value as "current" | "retirement")}
+                              options={[
+                                { value: "current", label: "Aktuell" },
+                                { value: "retirement", label: "Zur Rente" },
+                              ]}
+                            />
+                            <Input
+                              label="Rentenbetrag laut Bescheid"
+                              type="number"
+                              value={selfGrvNoticeAmount}
+                              onChange={(e) => setSelfGrvNoticeAmount(parseFloat(e.target.value) || 0)}
+                              suffix="€"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <DatePicker
+                              label="Berufseintritt"
+                              value={jobEntry}
+                              onChange={(date) => setJobEntry(date)}
+                            />
+                            <Input
+                              label="Monatliches Bruttoeinkommen"
+                              type="number"
+                              value={monthlyGross}
+                              onChange={(e) => setMonthlyGross(parseFloat(e.target.value) || 0)}
+                              suffix="€"
+                            />
+                            <Select
+                              label="Kirchensteuerpflichtig"
+                              value={churchTax}
+                              onChange={(e) => setChurchTax(e.target.value as YesNo)}
+                              options={[
+                                { value: "no", label: "Nein" },
+                                { value: "yes", label: "Ja" },
+                              ]}
+                            />
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </Accordion>
+
+                <Accordion title="Krankenversicherung im Alter" defaultOpen>
+                  <div className="space-y-4 pt-4">
+                    <Select
+                      label="Art der Krankenversicherung"
+                      value={healthType}
+                      onChange={(e) => setHealthType(e.target.value as "legal" | "private")}
+                      options={[
+                        { value: "private", label: "Privat" },
+                        { value: "legal", label: "Gesetzlich" },
+                      ]}
+                    />
+                    {healthType === "legal" && (
+                      <Select
+                        label="KVdR (Krankenversicherung der Rentner)"
+                        value={kvdr}
+                        onChange={(e) => setKvdr(e.target.value as YesNo)}
+                        options={[
+                          { value: "yes", label: "Ja" },
+                          { value: "no", label: "Nein" },
+                        ]}
+                      />
+                    )}
+                    {healthType === "private" && (
+                      <Input
+                        label="PKV-Beitrag heute"
+                        type="number"
+                        value={pkvPremium}
+                        onChange={(e) => setPkvPremium(parseFloat(e.target.value) || 0)}
+                        suffix="€"
+                      />
+                    )}
+                  </div>
+                </Accordion>
+                </>
+              ) : (
+                <Accordion title="Angaben zur Person" defaultOpen>
+                  <div className="space-y-4 pt-4">
+                    <DatePicker
+                      label="Geburtsdatum"
+                      value={dob}
+                      onChange={(date) => setDob(date)}
+                    />
+                    <DatePicker
+                      label="Berufseintritt"
+                      value={jobEntry}
+                      onChange={(date) => setJobEntry(date)}
+                    />
+                    <Input
+                      label="Monatliches Brutto"
+                      type="number"
+                      value={monthlyGross}
+                      onChange={(e) => setMonthlyGross(parseFloat(e.target.value) || 0)}
+                      suffix="€"
+                    />
+                    <Select
+                      label="Kirchensteuer"
+                      value={churchTax}
+                      onChange={(e) => setChurchTax(e.target.value as YesNo)}
+                      options={[
+                        { value: "no", label: "Nein" },
+                        { value: "yes", label: "Ja" },
+                      ]}
+                    />
+                    <Slider
+                      label="Renteneintrittsalter"
+                      valueLabel={`${retirementAge} Jahre`}
+                      min={55}
+                      max={75}
+                      value={retirementAge}
+                      onChange={(e) => setRetirementAge(parseInt(e.target.value))}
+                    />
+                    <Slider
+                      label="Lebenserwartung"
+                      valueLabel={`${lifeExpectancy} Jahre`}
+                      min={70}
+                      max={100}
+                      value={lifeExpectancy}
+                      onChange={(e) => setLifeExpectancy(parseInt(e.target.value))}
+                    />
+                  </div>
+                </Accordion>
+              )}
 
               {mode === "versorgungswerk" ? (
                 <Accordion title="Versorgungswerk-Annahmen" defaultOpen>
@@ -347,33 +497,38 @@ export function PensionPage() {
                       </>
                     )}
                     {hasNotice === "no" && (
-                      <Slider
-                        label="Faktor zur GRV"
-                        valueLabel={`${factorToGrv.toFixed(2)} x`}
-                        min={0.5}
-                        max={2.5}
-                        step={0.1}
-                        value={factorToGrv}
-                        onChange={(e) => setFactorToGrv(parseFloat(e.target.value))}
-                      />
+                      <div className="hidden">
+                        {/* Versteckt im UI, aber im Code vorhanden */}
+                        <Slider
+                          label="Faktor zur GRV"
+                          valueLabel={`${factorToGrv.toFixed(2)} x`}
+                          min={0.5}
+                          max={2.5}
+                          step={0.1}
+                          value={factorToGrv}
+                          onChange={(e) => setFactorToGrv(parseFloat(e.target.value))}
+                        />
+                      </div>
                     )}
-                    <Slider
-                      label="Regelaltersgrenze"
-                      valueLabel={`${ruleAge} Jahre`}
-                      min={60}
-                      max={70}
-                      value={ruleAge}
-                      onChange={(e) => setRuleAge(parseInt(e.target.value))}
-                    />
-                    <Slider
-                      label="Rentensteigerung p.a."
-                      valueLabel={`${pensionGrowthPct}% `}
-                      min={0}
-                      max={4}
-                      step={0.5}
-                      value={pensionGrowthPct}
-                      onChange={(e) => setPensionGrowthPct(parseFloat(e.target.value))}
-                    />
+                    <div className="hidden">
+                      <Slider
+                        label="Regelaltersgrenze"
+                        valueLabel={`${ruleAge} Jahre`}
+                        min={60}
+                        max={70}
+                        value={ruleAge}
+                        onChange={(e) => setRuleAge(parseInt(e.target.value))}
+                      />
+                      <Slider
+                        label="Rentensteigerung p.a."
+                        valueLabel={`${pensionGrowthPct}% `}
+                        min={0}
+                        max={4}
+                        step={0.5}
+                        value={pensionGrowthPct}
+                        onChange={(e) => setPensionGrowthPct(parseFloat(e.target.value))}
+                      />
+                    </div>
                     <Select
                       label="Krankenversicherung im Alter"
                       value={vwHealthType}
@@ -383,6 +538,17 @@ export function PensionPage() {
                         { value: "legal", label: "Gesetzlich" },
                       ]}
                     />
+                    {vwHealthType === "legal" && (
+                      <Select
+                        label="KVdR (Krankenversicherung der Rentner)"
+                        value={kvdr}
+                        onChange={(e) => setKvdr(e.target.value as YesNo)}
+                        options={[
+                          { value: "yes", label: "Ja" },
+                          { value: "no", label: "Nein" },
+                        ]}
+                      />
+                    )}
                     {vwHealthType === "private" && (
                       <Input
                         label="PKV-Beitrag heute"
@@ -392,18 +558,20 @@ export function PensionPage() {
                         suffix="€"
                       />
                     )}
-                    <Slider
-                      label="KV-Kostensteigerung p.a."
-                      valueLabel={`${healthGrowthPct}% `}
-                      min={0}
-                      max={8}
-                      step={0.5}
-                      value={healthGrowthPct}
-                      onChange={(e) => setHealthGrowthPct(parseFloat(e.target.value))}
-                    />
+                    <div className="hidden">
+                      <Slider
+                        label="KV-Kostensteigerung p.a."
+                        valueLabel={`${healthGrowthPct}% `}
+                        min={0}
+                        max={8}
+                        step={0.5}
+                        value={healthGrowthPct}
+                        onChange={(e) => setHealthGrowthPct(parseFloat(e.target.value))}
+                      />
+                    </div>
                   </div>
                 </Accordion>
-              ) : (
+              ) : mode === "employee" ? (
                 <Accordion title="Gesundheits-Annahmen" defaultOpen>
                   <div className="space-y-4 pt-4">
                     <Select
@@ -415,15 +583,17 @@ export function PensionPage() {
                         { value: "legal", label: "Gesetzlich" },
                       ]}
                     />
-                    <Select
-                      label="KVdR (Krankenversicherung der Rentner)"
-                      value={kvdr}
-                      onChange={(e) => setKvdr(e.target.value as YesNo)}
-                      options={[
-                        { value: "yes", label: "Ja" },
-                        { value: "no", label: "Nein" },
-                      ]}
-                    />
+                    {healthType === "legal" && (
+                      <Select
+                        label="KVdR (Krankenversicherung der Rentner)"
+                        value={kvdr}
+                        onChange={(e) => setKvdr(e.target.value as YesNo)}
+                        options={[
+                          { value: "yes", label: "Ja" },
+                          { value: "no", label: "Nein" },
+                        ]}
+                      />
+                    )}
                     {healthType === "private" && (
                       <Input
                         label="PKV-Beitrag heute"
@@ -435,7 +605,7 @@ export function PensionPage() {
                     )}
                   </div>
                 </Accordion>
-              )}
+              ) : null /* selfEmployed: health already in main accordion */}
 
               <Accordion title="Versorgungsziel" defaultOpen>
                 <div className="space-y-4 pt-4">
@@ -465,7 +635,7 @@ export function PensionPage() {
                 </div>
 
                 {/* Controls/Regler-kompakt, aligned */}
-                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 lg:gap-4 mb-4 pb-4 border-b border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4 pb-4 border-b border-gray-100">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-medium text-gray-600">Inflation</label>
@@ -511,11 +681,11 @@ export function PensionPage() {
                       className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#059669]"
                     />
                   </div>
-                  <div className="flex items-center justify-center xl:justify-start">
+                  <div className="flex items-center justify-start md:justify-center xl:justify-start mt-2 md:mt-0 pt-2 md:pt-0">
                     <Toggle
                       checked={adjustForPurchasePower}
                       onChange={setAdjustForPurchasePower}
-                      label="Kaufkraft"
+                      label="Kaufkraft (inflationsbereinigt)"
                     />
                   </div>
                 </div>
@@ -535,9 +705,11 @@ export function PensionPage() {
                           className="w-full bg-gradient-to-t from-sky-500 to-sky-400 rounded-t-lg lg:rounded-t-xl shadow-lg flex flex-col items-center justify-center transition-all duration-500 min-h-[50px]"
                           style={{ height: `${Math.max(targetTodayHeight, 20)}% ` }}
                         >
-                          <span className="text-white font-bold text-sm lg:text-lg xl:text-xl drop-shadow-md">{formatCurrency(targetToday)}</span>
+                          <div className="flex flex-col items-center">
+                            <span className="text-white font-bold text-sm lg:text-lg xl:text-xl drop-shadow-md">{formatCurrency(targetToday)}</span>
+                            <span className="text-white text-[10px] lg:text-xs xl:text-sm font-medium opacity-90 leading-tight text-center mt-1">Versorgungsziel</span>
+                          </div>
                         </div>
-                        <p className="mt-2 text-[10px] lg:text-xs font-semibold text-gray-700 text-center leading-tight">Versorgungs-<br />ziel</p>
                       </div>
 
                       {/* Balken 2: Ziel mit Inflation-NUR bei Kaufkraft AUS (Nominal) */}
@@ -547,9 +719,11 @@ export function PensionPage() {
                             className="w-full bg-gradient-to-t from-indigo-600 to-indigo-500 rounded-t-lg lg:rounded-t-xl shadow-lg flex flex-col items-center justify-center transition-all duration-500 min-h-[50px]"
                             style={{ height: `${Math.max(targetRetirementHeight, 20)}% ` }}
                           >
-                            <span className="text-white font-bold text-sm lg:text-lg xl:text-xl drop-shadow-md">{formatCurrency(targetAtRetirement)}</span>
+                            <div className="flex flex-col items-center px-1 text-center">
+                              <span className="text-white font-bold text-sm lg:text-lg xl:text-xl drop-shadow-md">{formatCurrency(targetAtRetirement)}</span>
+                              <span className="text-white text-[10px] lg:text-xs xl:text-sm font-medium opacity-90 leading-tight mt-1">Versorgungsziel mit Inflation</span>
+                            </div>
                           </div>
-                          <p className="mt-2 text-[10px] lg:text-xs font-semibold text-gray-700 text-center leading-tight">+ Inflation</p>
                         </div>
                       )}
 
@@ -568,7 +742,7 @@ export function PensionPage() {
                               {pensionPct > 8 && (
                                 <div className="text-white text-[9px] lg:text-xs xl:text-sm font-bold text-center px-1 leading-tight">
                                   <div className="whitespace-nowrap">{formatCurrency(pensionNet)}</div>
-                                  <div className="opacity-80 text-[8px] lg:text-[10px]">({pensionPct.toFixed(0)}%)</div>
+                                  <div className="opacity-90 font-medium text-[8px] lg:text-[10px] whitespace-normal leading-tight mt-0.5">{mode === 'versorgungswerk' ? 'Versorgungswerk Netto' : mode === 'employee' ? 'Gesetzliche Rente Netto' : selfGrvEnabled ? 'Gesetzliche Rente Netto' : 'Rente Netto'}</div>
                                 </div>
                               )}
                             </div>
@@ -582,7 +756,7 @@ export function PensionPage() {
                               {privatePct > 8 && (
                                 <div className="text-white text-[9px] lg:text-xs xl:text-sm font-bold text-center px-1 leading-tight">
                                   <div className="whitespace-nowrap">{formatCurrency(privatePayout)}</div>
-                                  <div className="opacity-80 text-[8px] lg:text-[10px]">({privatePct.toFixed(0)}%)</div>
+                                  <div className="opacity-90 font-medium text-[8px] lg:text-[10px] mt-0.5">Rente</div>
                                 </div>
                               )}
                             </div>
@@ -596,60 +770,25 @@ export function PensionPage() {
                               {gapPct > 8 && (
                                 <div className="text-white text-[9px] lg:text-xs xl:text-sm font-bold text-center px-1 leading-tight">
                                   <div className="whitespace-nowrap">{formatCurrency(gap)}</div>
-                                  <div className="opacity-80 text-[8px] lg:text-[10px]">({gapPct.toFixed(0)}%)</div>
+                                  <div className="opacity-90 font-medium text-[8px] lg:text-[10px] mt-0.5">Versorgungslücke</div>
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
-                        <p className="mt-2 text-[10px] lg:text-xs font-semibold text-gray-700 text-center leading-tight">
-                          {adjustForPurchasePower ? "Deckung (real)" : "Deckung"}
-                        </p>
                       </div>
                     </div>
 
-                    {/* GESAMTRENTE Box-sehr kompakt */}
-                    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <p className="text-[10px] lg:text-xs text-gray-500">Gesamtrente {adjustForPurchasePower ? "(real)" : "(nominal)"}</p>
-                          <p className="text-lg lg:text-xl font-bold text-gray-900">{formatCurrency(pensionNet + privatePayout)}</p>
-                        </div>
-                        <p className="text-[9px] lg:text-[10px] text-gray-400">pro Monat</p>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="bg-white rounded p-1.5 lg:p-2 shadow-sm">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <div className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-sm bg-blue-500" />
-                            <span className="text-[9px] lg:text-[10px] text-gray-500">{mode === "versorgungswerk" ? "VW" : "GRV"}</span>
-                          </div>
-                          <p className="text-[10px] lg:text-xs font-bold text-gray-900">{formatCurrency(pensionNet)}</p>
-                        </div>
-                        <div className="bg-white rounded p-1.5 lg:p-2 shadow-sm">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <div className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-sm bg-emerald-500" />
-                            <span className="text-[9px] lg:text-[10px] text-gray-500">Privat</span>
-                          </div>
-                          <p className="text-[10px] lg:text-xs font-bold text-gray-900">{formatCurrency(privatePayout)}</p>
-                        </div>
-                        <div className="bg-white rounded p-1.5 lg:p-2 shadow-sm">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <div className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-sm bg-red-500" />
-                            <span className="text-[9px] lg:text-[10px] text-gray-500">Lücke</span>
-                          </div>
-                          <p className="text-[10px] lg:text-xs font-bold text-red-600">{formatCurrency(gap)}</p>
+                    {/* Neuer zentrierter Gesamtrente-Indikator, angelehnt an Capital Flow */}
+                    <div className="flex justify-center mt-4">
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-gray-700 text-sm lg:text-base">Gesamtrente</span>
+                        <div className="border border-green-200 bg-green-50 text-emerald-600 font-bold px-3 py-1 lg:px-4 lg:py-1.5 rounded text-sm lg:text-base">
+                          {formatCurrency(pensionNet + privatePayout)}
                         </div>
                       </div>
                     </div>
 
-                    {/* Info text-sehr kompakt */}
-                    <div className="text-[9px] lg:text-[10px] text-gray-500 bg-gray-50 rounded px-2 py-1.5">
-                      {adjustForPurchasePower ? (
-                        <span>📊 <strong>Kaufkraftbereinigt:</strong> Werte in heutiger Kaufkraft</span>
-                      ) : (
-                        <span>📈 <strong>Nominal:</strong> Inkl. {yearsToRetirement.toFixed(0)}J Inflation</span>
-                      )}
-                    </div>
                   </div>
                 )}
               </Card>
@@ -819,8 +958,27 @@ export function PensionPage() {
                   onClick={() => setShowPdfModal(true)}
                 >
                   <FileText className="w-4 h-4 mr-2" />
-                  PDF erstellen
+                  Deine Rentenanalyse erhalten
                 </Button>
+              </div>
+
+              {/* ============ VIDEO & CTA SECTION ============ */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-center mt-6">
+                <h3 className="text-2xl lg:text-lg font-bold text-[#0f172a] mb-4">Erfahre mehr im Video</h3>
+                <div className="w-full aspect-[9/16] rounded-xl overflow-hidden shadow-inner border-2 border-gray-100">
+                  <video
+                    className="w-full h-full object-cover"
+                    controls
+                    playsInline
+                    preload="metadata"
+                    src="/video-rente.mp4#t=0.001"
+                  />
+                </div>
+                <div className="mt-6">
+                  <a href="https://outlook.office.com/bookwithme/user/359c7d5667e74b6b97800e6f681c3a29%40horbach.de/meetingtype/GUOy31G5NEWyOmoXzR4T8g2?anonymous&ismsaljsauthenabled=true" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-sm font-bold rounded-xl shadow-md hover:-translate-y-0.5 transition-all duration-300 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700">
+                    Jetzt Beratung anfragen
+                  </a>
+                </div>
               </div>
             </div>
           </div>

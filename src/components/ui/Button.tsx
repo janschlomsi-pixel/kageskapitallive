@@ -21,7 +21,7 @@ export function Button({
         "inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-300",
         "focus:outline-none focus:ring-2 focus:ring-offset-2",
         {
-          "bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-[1.02] focus:ring-emerald-500/50":
+          "bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-[1.02] focus:ring-emerald-500/50 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700":
             variant === "primary",
           "bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02] focus:ring-blue-500/50":
             variant === "secondary",

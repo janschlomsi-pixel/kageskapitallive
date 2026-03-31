@@ -2,8 +2,8 @@
 
 @theme {
   --font-sans: 'Manrope', 'IBM Plex Sans', system-ui, sans-serif;
-  --color-accent: #059669;
-  --color-secondary: #2563eb;
+  --color-accent: #d4af37;
+  --color-secondary: #0f172a;
 }
 
 html {
@@ -161,7 +161,7 @@ body {
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  background: linear-gradient(135deg, #d4af37 0%, #eab308 50%, #fef08a 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -180,7 +180,7 @@ body {
   transform: translateX(-50%);
   width: 120px;
   height: 4px;
-  background: linear-gradient(90deg, transparent, #059669, transparent);
+  background: linear-gradient(90deg, transparent, #d4af37, transparent);
   border-radius: 2px;
 }
 

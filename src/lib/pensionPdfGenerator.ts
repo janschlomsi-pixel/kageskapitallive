@@ -1,37 +1,28 @@
 /**
- * Altersvorsorge / Rentenlücke — Premium PDF Generator
- * Design matches CapitalFlow Finanzgutachten quality.
+ * Altersvorsorge / Rentenlücke — Premium PDF (HTML→Canvas→PDF)
+ * Uses the same pipeline as depotPolicePdfGenerator: renders HTML pages via
+ * html2canvas into jsPDF for pixel-perfect, CSS-quality output.
+ *
+ * 11 pages:
+ *  1  Cover            (Ref P4)
+ *  2  Anschreiben      (Ref P2)
+ *  3  Warum wichtig    (Ref P5)
+ *  4  Versorgung       (Ref P6)
+ *  5  Kaufkraft        (Ref P8)
+ *  6  Kapital          (Ref P10)
+ *  7  Start-Sparrate   (Ref P11)
+ *  8  Zinseszins       (Ref P12)
+ *  9  Zusammenfassung  (Ref P13)
+ * 10  Berechnungen     (Ref P14)
+ * 11  Abschluss        (Ref P15)
  */
-import jsPDF from "jspdf";
 import type { PdfRequestData } from "@/components/ui/PdfRequestModal";
 
-/* ═══════════════ BRAND COLORS ═══════════════ */
-type RGB = readonly [number, number, number];
-const C = {
-    emerald: [5, 150, 105] as RGB, emeraldDark: [4, 120, 87] as RGB,
-    emeraldPale: [209, 250, 229] as RGB, green50: [240, 253, 244] as RGB,
-    navy: [15, 23, 42] as RGB, slate700: [51, 65, 85] as RGB,
-    slate500: [100, 116, 139] as RGB, slate400: [148, 163, 184] as RGB,
-    slate300: [203, 213, 225] as RGB, slate200: [226, 232, 240] as RGB,
-    slate100: [241, 245, 249] as RGB, slate50: [248, 250, 252] as RGB,
-    white: [255, 255, 255] as RGB,
-    blue: [59, 130, 246] as RGB, blueDark: [29, 78, 216] as RGB,
-    blueLight: [219, 234, 254] as RGB,
-    red: [239, 68, 68] as RGB, redLight: [254, 226, 226] as RGB,
-    amber: [245, 158, 11] as RGB, amberLight: [254, 243, 199] as RGB,
-    yellow: [234, 179, 8] as RGB,
-    purple: [139, 92, 246] as RGB,
-    indigo: [99, 102, 241] as RGB, indigoDark: [67, 56, 202] as RGB,
-};
-
-/* ═══════════════ LAYOUT ═══════════════ */
-const PW = 210; const PH = 297;
-const ML = 22; const CW = PW - ML * 2;
-const FOOTER_Y = PH - 14;
-
-/* ═══════════════ INPUT TYPES ═══════════════ */
+/* ═══════════════════════════════════════════════════════════
+   TYPES
+   ═══════════════════════════════════════════════════════════ */
 export interface PensionPdfInput {
-    mode: "employee" | "versorgungswerk";
+    mode: "employee" | "versorgungswerk" | "selfEmployed";
     dob: Date;
     jobEntry: Date;
     monthlyGross: number;
@@ -69,997 +60,864 @@ export interface PensionPdfResult {
     monthsToRet: number;
 }
 
-/* ═══════════════ FORMATTERS ═══════════════ */
-const fmt = (n: number) => n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
-const fmtShort = (n: number) => isFinite(n) ? n.toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €" : "∞";
-const fmtPct = (n: number) => n.toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + " %";
-const fmtDate = (d: Date) => d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+/* ═══════════════════════════════════════════════════════════
+   COLORS
+   ═══════════════════════════════════════════════════════════ */
+const EM = "#059669";
+const NV = "#0f172a";
+const BL = "#2563eb";
+const RD = "#ef4444";
+const SL = "#64748b";
+const AM = "#f59e0b";
+const TOTAL = 12;
+
+/* ═══════════════════════════════════════════════════════════
+   FORMATTERS
+   ═══════════════════════════════════════════════════════════ */
+const fmt = (n: number) => n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " \u20ac";
+const fmtPct = (n: number) => n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " %";
+const fmtPctShort = (n: number) => Math.round(n).toLocaleString("de-DE") + "%";
 const fmtDateLong = (d: Date) => d.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+const fmtTs = (d: Date) => { const p = (v: number) => v.toString().padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`; };
 
-/* ═══════════════ LOW-LEVEL DRAWING ═══════════════ */
-const sc = (d: jsPDF, c: RGB) => d.setTextColor(c[0], c[1], c[2]);
-const sf = (d: jsPDF, c: RGB) => d.setFillColor(c[0], c[1], c[2]);
-const sd = (d: jsPDF, c: RGB) => d.setDrawColor(c[0], c[1], c[2]);
-function opacity(d: jsPDF, o: number) { d.setGState(new (d as any).GState({ opacity: o })); }
+/* ═══════════════════════════════════════════════════════════
+   SVG ICONS (Lucide-style)
+   ═══════════════════════════════════════════════════════════ */
+const IC = {
+    clock: (c = SL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    user: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+    settings: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    folder: (c = SL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`,
+    check: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+    trendUp: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+    trendDown: (c = RD, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>`,
+    arrowRight: (c = BL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`,
+    percent: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`,
+    coins: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/></svg>`,
+    quote: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z"/></svg>`,
+    shield: (c = BL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
+    alertTriangle: (c = "#f59e0b", s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+    banknote: (c = RD, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>`,
+    piggy: (c = SL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/><path d="M16 11h0"/></svg>`,
+    target: (c = BL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+    notEqual: (c = RD, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="19" y1="5" x2="5" y2="19"/></svg>`,
+    up: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>`,
+    wallet: (c = BL, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
+    chartLine: (c = EM, s = 24) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>`,
+};
 
-function softShadow(d: jsPDF, x: number, y: number, w: number, h: number, r: number) {
-    sf(d, [0, 0, 0]);
-    opacity(d, 0.02); d.roundedRect(x + 0.3, y + 1.5, w, h, r, r, "F");
-    opacity(d, 0.03); d.roundedRect(x + 0.15, y + 0.6, w, h, r, r, "F");
-    opacity(d, 1);
-}
+/* ═══════════════════════════════════════════════════════════
+   REUSABLE HTML BUILDING BLOCKS
+   ═══════════════════════════════════════════════════════════ */
 
-function card(d: jsPDF, x: number, y: number, w: number, h: number, opts?: { fill?: RGB; border?: RGB; noShadow?: boolean; noBorder?: boolean; radius?: number }) {
-    const r = opts?.radius ?? 6;
-    if (!opts?.noShadow) softShadow(d, x, y, w, h, r);
-    sf(d, opts?.fill ?? C.white);
-    if (opts?.noBorder) { d.roundedRect(x, y, w, h, r, r, "F"); }
-    else { sd(d, opts?.border ?? C.slate200); d.setLineWidth(0.25); d.roundedRect(x, y, w, h, r, r, "FD"); }
-}
+/** Icon in a circle */
+const ib = (icon: string, bg = "#f0fdf4", border = "#d1fae5", sz = 48) =>
+    `<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:1px solid ${border};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:0;box-sizing:border-box;vertical-align:middle"><span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0">${icon}</span></div>`;
 
-function drawArc(d: jsPDF, cx: number, cy: number, r: number, startDeg: number, endDeg: number, color: RGB, lineW: number) {
-    sd(d, color); d.setLineWidth(lineW);
-    const steps = Math.max(60, Math.abs(endDeg - startDeg));
-    for (let i = 0; i < steps; i++) {
-        const a1 = (startDeg + (endDeg - startDeg) * i / steps) * Math.PI / 180;
-        const a2 = (startDeg + (endDeg - startDeg) * (i + 1) / steps) * Math.PI / 180;
-        d.line(cx + r * Math.cos(a1), cy + r * Math.sin(a1), cx + r * Math.cos(a2), cy + r * Math.sin(a2));
+/** Page wrapper */
+const P = `width:210mm;height:297mm;overflow:hidden;background:#fff;position:relative;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:${NV};box-sizing:border-box;padding:0;margin:0;`;
+
+/** Header brand mark — subtle rounded-square with clock icon */
+const headerBrandMark = (s = 40) => `<div style="width:${s}px;height:${s}px;border-radius:${Math.round(s * 0.3)}px;background:#f8f9f7;border:1px solid #e5e7e3;display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex-shrink:0;line-height:0"><span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0">${IC.clock("#f97316", Math.round(s * 0.48))}</span></div>`;
+
+/** Header bar — full-width grey background strip matching cashflow reference */
+const hdr = (n: number, title = "Deine Altersvorsorge") => `<div style="background:#f3f4f2;border-bottom:1px solid #e2e5df;padding:0 7%;height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;box-sizing:border-box"><div style="display:flex;align-items:center;gap:14px">${headerBrandMark(40)}<span style="font-size:20px;font-weight:700;color:${NV};white-space:nowrap;position:relative;top:-9px">${title}</span></div><svg width="42" height="42" viewBox="0 0 36 36" aria-hidden="true" style="flex-shrink:0"><circle cx="18" cy="18" r="16" fill="none" stroke="#d2d8ce" stroke-width="3"/><circle cx="18" cy="18" r="16" fill="none" stroke="#65a30d" stroke-width="3.2" stroke-linecap="round" stroke-dasharray="${(n / TOTAL) * 100.5} 100.5" transform="rotate(-90 18 18)"/></svg></div>`;
+
+/** Footer */
+const ftr = (n: number, name: string) => `<div style="position:absolute;bottom:3%;left:7%;right:7%;border-top:1px solid #e2e8f0;padding-top:10px;display:flex;justify-content:space-between"><span style="font-size:13px;color:#94a3b8">\u00a9${new Date().getFullYear()} Karges Kapital \u2022 Altersvorsorge-Auswertung f\u00fcr ${name}</span><span style="font-size:13px;color:#94a3b8">${n}</span></div>`;
+
+/** Data row */
+const R = (l: string, v: string) => `<div style="display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid #f1f5f9;align-items:center"><span style="font-size:13px;color:#64748b">${l}</span><span style="font-size:13px;font-weight:600;text-align:right">${v}</span></div>`;
+
+/** KPI card matching reference style (icon above, label, big number) */
+const kpi = (label: string, value: string, color: string, icon: string, bgIcon: string, borderIcon: string) =>
+    `<div style="border:1px solid #e2e8f0;border-radius:16px;padding:18px 12px;background:#fff;display:flex;flex-direction:column;align-items:center;gap:6px;flex:1">
+        ${ib(icon, bgIcon, borderIcon, 40)}
+        <div style="font-size:12px;color:#64748b;text-align:center">${label}</div>
+        <div style="font-size:20px;font-weight:800;color:${color};line-height:1.1">${value}</div>
+    </div>`;
+
+/* ═══════════════════════════════════════════════════════════
+   SVG CHART HELPERS
+   ═══════════════════════════════════════════════════════════ */
+
+/** Stacked bar chart for cover & versorgung pages */
+function barChartSvg(opts: {
+    bars: Array<{ segments: Array<{ h: number; color: string; label?: string; value?: string }>; bottomLabel?: string }>;
+    width?: number;
+    height?: number;
+    barWidth?: number;
+    gap?: number;
+    tooltip?: { text: string; barIdx: number };
+    bottomExtra?: string;
+}): string {
+    const { bars, width = 600, height = 380, barWidth = 140, gap = 60 } = opts;
+    const totalBarsW = bars.length * barWidth + (bars.length - 1) * gap;
+    const startX = (width - totalBarsW) / 2;
+    const maxH = height - 60;
+    let svg = `<svg width="100%" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
+    // Grid lines
+    for (let i = 0; i < 5; i++) {
+        const y = 10 + i * (maxH / 4);
+        svg += `<line x1="${startX - 10}" y1="${y}" x2="${startX + totalBarsW + 10}" y2="${y}" stroke="#f1f5f9" stroke-width="1"/>`;
     }
+    bars.forEach((bar, idx) => {
+        const bx = startX + idx * (barWidth + gap);
+        let by = maxH + 10;
+        bar.segments.forEach((seg) => {
+            by -= seg.h;
+            svg += `<rect x="${bx}" y="${by}" width="${barWidth}" height="${seg.h}" rx="8" fill="${seg.color}"/>`;
+            if (seg.value && seg.h > 30) {
+                svg += `<text x="${bx + barWidth / 2}" y="${by + seg.h / 2 - 4}" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">${seg.value}</text>`;
+            }
+            if (seg.label && seg.h > 30) {
+                svg += `<text x="${bx + barWidth / 2}" y="${by + seg.h / 2 + 14}" text-anchor="middle" fill="#fff" font-size="11">${seg.label}</text>`;
+            }
+        });
+        if (bar.bottomLabel) {
+            svg += `<text x="${bx + barWidth / 2}" y="${maxH + 34}" text-anchor="middle" fill="${SL}" font-size="13" font-weight="600">${bar.bottomLabel}</text>`;
+        }
+    });
+    // Connecting line between bar 1 and 2 tops
+    if (bars.length >= 2) {
+        const x1 = startX + barWidth;
+        const y1 = maxH + 10 - bars[0].segments.reduce((a, s) => a + s.h, 0);
+        const x2 = startX + barWidth + gap;
+        const y2 = maxH + 10 - bars[1].segments.reduce((a, s) => a + s.h, 0);
+        svg += `<path d="M${x1},${y1} C${x1 + gap / 3},${y1} ${x2 - gap / 3},${y2} ${x2},${y2}" fill="none" stroke="#cbd5e1" stroke-width="2"/>`;
+    }
+    // Tooltip
+    if (opts.tooltip) {
+        const tBar = bars[opts.tooltip.barIdx];
+        const barCx = startX + opts.tooltip.barIdx * (barWidth + gap) + barWidth / 2;
+        const ty = maxH + 10 - tBar.segments.reduce((a, s) => a + s.h, 0) - 14;
+        const tw = opts.tooltip.text.length * 8.5 + 30;
+        // Clamp tooltip rect to stay within SVG bounds; keep arrow at bar center
+        const tx = Math.min(Math.max(tw / 2 + 5, barCx), width - tw / 2 - 5);
+        svg += `<rect x="${tx - tw / 2}" y="${ty - 28}" width="${tw}" height="30" rx="8" fill="#1e293b"/>`;
+        svg += `<polygon points="${barCx - 6},${ty + 2} ${barCx + 6},${ty + 2} ${barCx},${ty + 10}" fill="#1e293b"/>`;
+        svg += `<circle cx="${tx - tw / 2 + 16}" cy="${ty - 13}" r="4" fill="${RD}"/>`;
+        svg += `<text x="${tx - tw / 2 + 28}" y="${ty - 8}" fill="#fff" font-size="13" font-weight="600">${opts.tooltip.text}</text>`;
+    }
+    svg += `</svg>`;
+    return svg;
 }
 
-function drawLogo(d: jsPDF, cx: number, cy: number, r: number) {
-    sf(d, C.green50); d.circle(cx, cy, r * 1.35, "F");
-    sd(d, C.emeraldPale); d.setLineWidth(0.3); d.circle(cx, cy, r * 1.35, "S");
-    sf(d, C.emerald); d.circle(cx, cy, r, "F");
-    sf(d, C.white);
-    const a = r * 0.26, b = r * 0.62;
-    d.roundedRect(cx - a, cy - b, a * 2, b * 2, a * 0.4, a * 0.4, "F");
-    d.roundedRect(cx - b, cy - a, b * 2, a * 2, a * 0.4, a * 0.4, "F");
+/** Growth area chart for Kapital page — smooth curve style */
+function growthChartSvg(width = 660, height = 280): string {
+    // Smooth exponential growth curve
+    const pts: [number, number][] = [];
+    const numPts = 30;
+    for (let i = 0; i <= numPts; i++) {
+        const t = i / numPts;
+        const x = t * (width - 20) + 10;
+        const y = height - 20 - (Math.pow(t, 1.8) * (height - 60));
+        pts.push([x, y]);
+    }
+    // Build smooth cubic bezier path
+    let path = `M${pts[0][0]},${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) {
+        const prev = pts[i - 1];
+        const curr = pts[i];
+        const cpx1 = prev[0] + (curr[0] - prev[0]) * 0.5;
+        const cpx2 = curr[0] - (curr[0] - prev[0]) * 0.5;
+        path += ` C${cpx1},${prev[1]} ${cpx2},${curr[1]} ${curr[0]},${curr[1]}`;
+    }
+    const areaPath = path + ` L${width - 10},${height} L10,${height} Z`;
+    const midIdx = Math.floor(numPts * 0.6);
+    const midPt = pts[midIdx];
+    return `<svg width="100%" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <defs>
+            <linearGradient id="gGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#10b981" stop-opacity="0.30"/>
+                <stop offset="100%" stop-color="#10b981" stop-opacity="0.03"/>
+            </linearGradient>
+        </defs>
+        ${[0, 1, 2, 3, 4].map(i => `<line x1="0" y1="${20 + i * ((height - 40) / 4)}" x2="${width}" y2="${20 + i * ((height - 40) / 4)}" stroke="#e2e8f0" stroke-width="0.5"/>`).join("")}
+        <path d="${areaPath}" fill="url(#gGrad)"/>
+        <path d="${path}" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${midPt[0]}" cy="${midPt[1]}" r="7" fill="#fff" stroke="#10b981" stroke-width="2.5"/>
+    </svg>`;
 }
 
-function drawLogoSmall(d: jsPDF, cx: number, cy: number) {
-    sf(d, C.emerald); d.circle(cx, cy, 5.5, "F");
-    sf(d, C.white);
-    d.roundedRect(cx - 1.1, cy - 3, 2.2, 6, 0.4, 0.4, "F");
-    d.roundedRect(cx - 3, cy - 1.1, 6, 2.2, 0.4, 0.4, "F");
-}
-
-function iconCircle(d: jsPDF, cx: number, cy: number, color: RGB, symbol: string, sz?: number) {
-    const r = sz ?? 5;
-    sf(d, C.green50); d.circle(cx, cy, r, "F");
-    sd(d, color); d.setLineWidth(0.4); d.circle(cx, cy, r, "S");
-    d.setFont("helvetica", "bold"); d.setFontSize(r * 2); sc(d, color);
-    const tw = d.getTextWidth(symbol);
-    d.text(symbol, cx - tw / 2, cy + r * 0.4);
-}
-
-function hline(d: jsPDF, y: number) { sd(d, C.slate200); d.setLineWidth(0.15); d.line(ML, y, PW - ML, y); }
-
-let totalPages = 12;
-
-function pageHeader(d: jsPDF, pageNum: number) {
-    sf(d, C.emerald); d.rect(0, 0, PW, 1.5, "F");
-    sf(d, C.emeraldPale); d.rect(0, 1.5, PW, 0.5, "F");
-    drawLogoSmall(d, ML + 5, 15);
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Ihre Altersvorsorge", ML + 14, 17.5);
-    const arcCx = PW - ML - 5, arcCy = 15, arcR = 7;
-    const pct = pageNum / totalPages;
-    drawArc(d, arcCx, arcCy, arcR, 0, 360, C.slate200, 1.6);
-    if (pct > 0) drawArc(d, arcCx, arcCy, arcR, -90, -90 + pct * 360, C.emerald, 1.8);
-    const ea = (-90 + pct * 360) * Math.PI / 180;
-    sf(d, C.emerald); d.circle(arcCx + arcR * Math.cos(ea), arcCy + arcR * Math.sin(ea), 1, "F");
-}
-
-function pageFooter(d: jsPDF, num: number, name: string) {
-    sd(d, C.slate200); d.setLineWidth(0.15);
-    d.line(ML, FOOTER_Y - 5, PW - ML, FOOTER_Y - 5);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text(`\u00A9${new Date().getFullYear()} Medizinerberatung Horbach \u2022 Finanzgutachten f\u00FCr ${name}`, ML, FOOTER_Y);
-    d.text(`${num}`, PW - ML, FOOTER_Y, { align: "right" });
-}
-
-function para(d: jsPDF, text: string, y: number, opts?: { w?: number; sz?: number; x?: number; color?: RGB; lh?: number; bold?: boolean }): number {
-    const w = opts?.w ?? CW - 4; const sz = opts?.sz ?? 10.5;
-    const x = opts?.x ?? ML + 4; const lh = opts?.lh ?? 5.2;
-    d.setFont("helvetica", opts?.bold ? "bold" : "normal"); d.setFontSize(sz); sc(d, opts?.color ?? C.slate500);
-    const lines = d.splitTextToSize(text, w) as string[];
-    lines.forEach((line: string, i: number) => d.text(line, x, y + i * lh));
-    return y + lines.length * lh + 2;
-}
-
-/* ═══════════════ DERIVED HELPERS ═══════════════ */
-function derivedValues(inp: PensionPdfInput, res: PensionPdfResult) {
-    const ytr = res.monthsToRet / 12;
-    const inflFactor = Math.pow(1 + inp.inflationPct / 100, ytr);
-    const pensionNetReal = res.pensionNet / inflFactor;
-    const privatePayoutReal = res.privatePayout / inflFactor;
-    const gapReal = Math.max(0, inp.targetNetToday - pensionNetReal - privatePayoutReal);
-    const totalReal = pensionNetReal + privatePayoutReal;
-    const coveragePct = res.targetInflated > 0 ? res.totalPension / res.targetInflated * 100 : 0;
-    return { ytr, inflFactor, pensionNetReal, privatePayoutReal, gapReal, totalReal, coveragePct };
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 1 — COVER
-   ════════════════════════════════════════════════════════ */
-function pageCover(d: jsPDF, data: PdfRequestData, res: PensionPdfResult) {
-    sf(d, C.emerald); d.rect(0, 0, PW, 3, "F");
-    sf(d, C.emeraldPale); d.rect(0, 3, PW, 0.6, "F");
-    const cx = PW / 2;
-
-    drawLogo(d, cx, 48, 14);
-
-    d.setFont("helvetica", "normal"); d.setFontSize(12); sc(d, C.emerald);
-    d.text(`Sehr geehrte/r Herr ${data.lastName},`, cx, 80, { align: "center" });
-
-    d.setFont("helvetica", "bold"); d.setFontSize(28); sc(d, C.navy);
-    d.text("Ihre Altersvorsorge", cx, 100, { align: "center" });
-
-    d.setFont("helvetica", "normal"); d.setFontSize(10.5); sc(d, C.slate500);
-    const sub = d.splitTextToSize("Eine \u00DCbersicht Ihrer bestehenden Anspr\u00FCche und wie Sie Ihre Versorgungsl\u00FCcke schlie\u00DFen k\u00F6nnen.", 130) as string[];
-    d.text(sub, cx, 114, { align: "center" });
-
-    d.setFont("helvetica", "normal"); d.setFontSize(11); sc(d, C.slate400);
-    d.text(`Erstellt am ${fmtDate(new Date())}`, cx, 135, { align: "center" });
-
-    // Decorative bar chart visual
-    const chartX = cx - 40, chartY = 155, chartH = 75;
-    card(d, chartX - 16, chartY - 10, 112, chartH + 30, { radius: 8 });
-
-    // Versorgungslücke badge
-    sf(d, C.navy); d.roundedRect(cx - 2, chartY - 6, 46, 10, 4, 4, "F");
-    sf(d, C.red); d.circle(cx + 2, chartY - 1, 2, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(6.5); sc(d, C.white);
-    d.text("Versorgungsl\u00FCcke", cx + 6, chartY + 1);
-
-    // 3 bars
-    const barW = 24, barGap = 8;
+/* ═══════════════════════════════════════════════════════════
+   PAGE 1 — COVER  (Ref P4)
+   ═══════════════════════════════════════════════════════════ */
+function coverChartSvg(): string {
+    const w = 520, h = 340;
+    const barW = 110, gap = 28;
     const bars = [
-        { h: chartH * 0.4, segs: [{ pct: 1, c: C.slate300 }] },
-        { h: chartH * 0.65, segs: [{ pct: 1, c: C.slate400 }] },
-        { h: chartH * 0.9, segs: [{ pct: 0.12, c: C.blue }, { pct: 0.15, c: C.emerald }, { pct: 0.2, c: C.yellow }, { pct: 0.53, c: C.red }] },
+        { segments: [{ h: 100, color: "#94a3b8" }] },
+        { segments: [{ h: 160, color: "#475569" }] },
+        { segments: [
+            { h: 80, color: BL },
+            { h: 60, color: EM },
+            { h: 40, color: AM },
+            { h: 60, color: RD },
+        ] },
     ];
-    bars.forEach((bar, i) => {
-        const bx = chartX + i * (barW + barGap);
-        let by = chartY + chartH - bar.h + 8;
-        bar.segs.forEach(seg => {
-            const segH = bar.h * seg.pct;
-            sf(d, seg.c);
-            if (by === chartY + chartH - bar.h + 8) d.roundedRect(bx, by, barW, segH, 3, 0, "F");
-            else d.rect(bx, by, barW, segH, "F");
-            by += segH;
+    const totalBarsW = bars.length * barW + (bars.length - 1) * gap;
+    const startX = (w - totalBarsW) / 2;
+    const baseY = h - 30;
+    let svg = `<svg width="100%" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
+    // Light grid lines
+    for (let i = 0; i < 5; i++) {
+        const y = 20 + i * ((baseY - 20) / 4);
+        svg += `<line x1="${startX - 10}" y1="${y}" x2="${startX + totalBarsW + 10}" y2="${y}" stroke="#f1f5f9" stroke-width="1"/>`;
+    }
+    bars.forEach((bar, idx) => {
+        const bx = startX + idx * (barW + gap);
+        let by = baseY;
+        bar.segments.forEach((seg) => {
+            by -= seg.h;
+            svg += `<rect x="${bx}" y="${by}" width="${barW}" height="${seg.h}" rx="6" fill="${seg.color}"/>`;
         });
     });
-
-    // Gesamtrente label
-    d.setFont("helvetica", "normal"); d.setFontSize(8); sc(d, C.slate500);
-    d.text("Gesamtrente", cx - 18, chartY + chartH + 14);
-    sf(d, C.emerald); d.roundedRect(cx + 6, chartY + chartH + 8, 36, 9, 3, 3, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(7.5); sc(d, C.white);
-    d.text(fmt(res.totalPension), cx + 24, chartY + chartH + 14, { align: "center" });
-
-    hline(d, 250);
-
-    const by2 = 260;
-    drawLogoSmall(d, ML + 6, by2 + 2);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Ihre Ansprechperson", ML + 16, by2 - 2);
-    d.setFont("helvetica", "bold"); d.setFontSize(9); sc(d, C.navy);
-    d.text(`${data.firstName} ${data.lastName}`, ML + 16, by2 + 4);
-    sd(d, C.slate200); d.setLineWidth(0.15); d.line(ML + 62, by2 - 4, ML + 62, by2 + 8);
-    d.setFont("helvetica", "normal"); d.setFontSize(8); sc(d, C.slate500);
-    d.text(data.phone, ML + 68, by2 - 1);
-    d.text(data.email, ML + 68, by2 + 5);
-
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("1", PW - ML, FOOTER_Y, { align: "right" });
+    // Connecting line between bar 1 top and bar 2 top
+    const x1 = startX + barW;
+    const y1 = baseY - bars[0].segments.reduce((a, s) => a + s.h, 0);
+    const x2 = startX + barW + gap;
+    const y2 = baseY - bars[1].segments.reduce((a, s) => a + s.h, 0);
+    svg += `<path d="M${x1},${y1} C${x1 + gap / 3},${y1} ${x2 - gap / 3},${y2} ${x2},${y2}" fill="none" stroke="#cbd5e1" stroke-width="2"/>`;
+    // Versorgungslücke tooltip centered above all bars
+    const tooltipCx = startX + totalBarsW / 2;
+    const bar3Top = baseY - bars[2].segments.reduce((a, s) => a + s.h, 0);
+    const ty = Math.min(y1, y2, bar3Top) - 18;
+    const tw = 190;
+    svg += `<rect x="${tooltipCx - tw / 2}" y="${ty - 26}" width="${tw}" height="30" rx="8" fill="#1e293b"/>`;
+    svg += `<polygon points="${tooltipCx - 6},${ty + 4} ${tooltipCx + 6},${ty + 4} ${tooltipCx},${ty + 12}" fill="#1e293b"/>`;
+    svg += `<circle cx="${tooltipCx - tw / 2 + 16}" cy="${ty - 11}" r="5" fill="${RD}"/>`;
+    svg += `<text x="${tooltipCx - tw / 2 + 28}" y="${ty - 6}" fill="#fff" font-size="14" font-weight="700">Versorgungsl\u00fccke</text>`;
+    svg += `</svg>`;
+    return svg;
 }
 
-/* ════════════════════════════════════════════════════════
-   PAGE 2 — INTRO
-   ════════════════════════════════════════════════════════ */
-function pageIntro(d: jsPDF, data: PdfRequestData) {
-    pageHeader(d, 2);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 40;
+function p1(d: PdfRequestData, res: PensionPdfResult): string {
+    const totalRente = res.pensionNet + res.privatePayout;
 
-    drawLogo(d, PW / 2, y, 10);
-    y += 34;
-
-    d.setFont("helvetica", "bold"); d.setFontSize(18); sc(d, C.navy);
-    d.text(`Sehr geehrte/r Herr ${data.lastName},`, ML, y);
-    y += 20;
-
-    y = para(d, `die Altersvorsorge ist eines der wichtigsten Themen f\u00FCr Ihre finanzielle Zukunft. Umso bedeutsamer ist es, fr\u00FChzeitig Klarheit \u00FCber Ihre aktuelle Versorgungssituation zu gewinnen. Genau daf\u00FCr haben wir diese Analyse erstellt: Sie zeigt Ihnen transparent, wo Sie heute stehen, welche L\u00FCcke sich bis zum Renteneintritt auftun k\u00F6nnte und wie Sie diese gezielt schlie\u00DFen k\u00F6nnen.`, y, { sz: 12, lh: 6.5, x: ML, w: CW });
-    y += 12;
-
-    y = para(d, `Als Mediziner stehen Sie vor besonderen Herausforderungen: hohe berufliche Belastung, komplexe Versorgungswerke und eine Finanzwelt, die sich st\u00E4ndig ver\u00E4ndert. Wir m\u00F6chten Ihnen helfen, den \u00DCberblick zu behalten und die richtigen Entscheidungen f\u00FCr Ihre Zukunft zu treffen. Diese Auswertung ist Ihr erster Schritt zu einer ma\u00DFgeschneiderten Altersvorsorge-Strategie.`, y, { sz: 12, lh: 6.5, x: ML, w: CW });
-    y += 24;
-
-    d.setFont("helvetica", "normal"); d.setFontSize(12); sc(d, C.slate500);
-    d.text("Mit besten Gr\u00FC\u00DFen,", ML, y);
-    y += 22;
-
-    drawLogoSmall(d, ML + 6, y + 3);
-    d.setFont("helvetica", "bold"); d.setFontSize(12); sc(d, C.navy);
-    d.text(`${data.firstName} ${data.lastName}`, ML + 18, y + 2);
-    d.setFont("helvetica", "normal"); d.setFontSize(10); sc(d, C.slate400);
-    d.text("Ihre Ansprechperson", ML + 18, y + 9);
-
-    pageFooter(d, 2, name);
+    return `<div style="${P}">
+        <div style="display:flex;flex-direction:column;align-items:center;padding-top:18%">
+            ${ib(IC.clock("#f97316", 28), "#fff7ed", "#fed7aa", 56)}
+            <h1 style="font-size:52px;font-weight:800;text-align:center;margin:28px 0 0;line-height:1.1">Deine Altersvorsorge</h1>
+            <p style="color:#64748b;font-size:17px;margin-top:16px;text-align:center;max-width:420px;line-height:1.6">Eine \u00dcbersicht deiner bestehenden Anspr\u00fcche und wie du deine Versorgungsl\u00fccke schlie\u00dfen kannst.</p>
+        </div>
+        <div style="margin:4% 8% 0;border:1px solid #e2e8f0;border-radius:22px;padding:20px 20px 18px;box-shadow:0 8px 28px rgba(15,23,42,0.04)">
+            ${coverChartSvg()}
+            <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;padding-top:10px;border-top:1px solid #f1f5f9"><span style="font-size:15px;color:#64748b;line-height:1">Gesamtrente</span><span style="color:${EM};font-size:16px;font-weight:700;line-height:1">${fmt(totalRente)}</span></div>
+        </div>
+        ${ftr(1, `${d.firstName} ${d.lastName}`)}</div>`;
 }
 
-/* ════════════════════════════════════════════════════════
-   PAGE 3 — WARUM IST ALTERSVORSORGE WICHTIG?
-   ════════════════════════════════════════════════════════ */
-function pageWhyImportant(d: jsPDF, data: PdfRequestData) {
-    pageHeader(d, 3);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
+/* ═══════════════════════════════════════════════════════════
+   PAGE 2 — ANSCHREIBEN  (Ref P2)
+   ═══════════════════════════════════════════════════════════ */
+function p2(d: PdfRequestData, avatarDataUrl: string): string {
+    return `<div style="${P}">${hdr(2)}
+        <div style="padding:4% 8% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:24px;padding:36px 36px;box-shadow:0 10px 28px rgba(15,23,42,0.05)">
+                <p style="font-weight:700;font-size:24px;margin:0 0 28px">Hey ${d.firstName},</p>
+                <p style="font-size:17px;color:#64748b;line-height:2;margin-bottom:28px">es freut mich, dass du dich mit deiner Altersvorsorge auseinandergesetzt hast. Die meisten schieben dieses Thema viel zu lange vor sich her \u2013 umso besser, dass du jetzt einen klaren Blick auf deine Versorgungssituation hast.</p>
+                <p style="font-size:17px;color:#64748b;line-height:2;margin-bottom:28px">In dieser Auswertung siehst du, wie gro\u00df die L\u00fccke zwischen deinem Versorgungsziel und deiner voraussichtlichen Rente ist, welches Kapital daf\u00fcr n\u00f6tig w\u00e4re und wie sich der Zeitpunkt deines Starts auf das Ergebnis auswirkt.</p>
+                <p style="font-size:17px;color:#64748b;line-height:2;margin-bottom:36px">Nimm dir einen Moment und geh die folgenden Seiten in Ruhe durch.</p>
+                <p style="font-size:17px;color:#64748b;margin-bottom:28px">Beste Gr\u00fc\u00dfe,</p>
+                <div style="display:flex;align-items:center;gap:16px"><img src="${avatarDataUrl}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0" /><div><span style="font-weight:700;font-size:18px">Julian Karges</span></div></div>
+            </div>
+        </div>
+        ${ftr(2, `${d.firstName} ${d.lastName}`)}</div>`;
+}
 
-    d.setFont("helvetica", "bold"); d.setFontSize(15); sc(d, C.navy);
-    d.text("Warum ist Altersvorsorge wichtig?", ML, y);
-    y += 8;
-    y = para(d, "Die gesetzliche Rente reicht immer seltener aus, um den Lebensstandard im Alter zu sichern. Faktoren wie der demografische Wandel, Inflation und die steigende Besteuerung f\u00FChren dazu, dass die Versorgungsl\u00FCcken gr\u00F6\u00DFer werden. Eine gut geplante Altersvorsorge ist entscheidend.", y, { sz: 10, lh: 5, x: ML, w: CW });
-    y += 6;
+/* ═══════════════════════════════════════════════════════════
+   PAGE 3 — WARUM IST ALTERSVORSORGE WICHTIG?  (Ref P5)
+   ═══════════════════════════════════════════════════════════ */
+function p3(d: PdfRequestData): string {
+    const name = `${d.firstName} ${d.lastName}`;
 
-    const halfW = (CW - 8) / 2;
+    // Population pyramid SVG — cleaner with proper labels, bars contained within grid
+    const pyramidSvg = `<svg width="100%" viewBox="0 0 300 256" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <rect x="50" y="10" width="80" height="18" rx="9" fill="${BL}"/>
+        <text x="90" y="23" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">M\u00e4nner</text>
+        <rect x="170" y="10" width="80" height="18" rx="9" fill="#1e40af"/>
+        <text x="210" y="23" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">Frauen</text>
+        ${[100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0].map((age, i) => {
+            const y = 40 + i * 18;
+            const wM = [12, 20, 32, 44, 50, 54, 46, 58, 62, 56, 42][i];
+            const wF = [14, 22, 34, 46, 52, 56, 48, 60, 64, 58, 44][i];
+            return `<rect x="${150 - wM}" y="${y}" width="${wM}" height="15" rx="3" fill="${BL}" opacity="0.8"/>
+                    <rect x="150" y="${y}" width="${wF}" height="15" rx="3" fill="#1e40af" opacity="0.8"/>
+                    <text x="148" y="${y + 12}" text-anchor="end" fill="#94a3b8" font-size="8" dx="-${wM + 6}">${age}</text>`;
+        }).join("")}
+        <text x="30" y="238" fill="#94a3b8" font-size="9">600k</text>
+        <text x="80" y="238" fill="#94a3b8" font-size="9">300k</text>
+        <text x="150" y="238" fill="#94a3b8" font-size="9" text-anchor="middle">0</text>
+        <text x="200" y="238" fill="#94a3b8" font-size="9">300k</text>
+        <text x="250" y="238" fill="#94a3b8" font-size="9">600k</text>
+    </svg>`;
 
-    // Left card: Demografischer Wandel
-    card(d, ML, y, halfW, 100, { radius: 7 });
-    const popX = ML + halfW / 2, popY = y + 14;
+    // Inflation timeline SVG — simple bars with price labels, "Beispiel Eiskugel"
+    const inflSvg = `<svg width="100%" viewBox="0 0 300 200" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <text x="150" y="16" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600">Beispiel Eiskugel</text>
+        <line x1="30" y1="155" x2="280" y2="155" stroke="#e2e8f0" stroke-width="2"/>
+        ${[[60, EM, "0,60\u20ac", "2000"], [150, AM, "2,20\u20ac", "2020"], [240, RD, "4,50\u20ac", "2040"]].map(([x, c, v, yr], idx) => {
+            const barH = [50, 80, 120][idx];
+            const barTop = 155 - barH;
+            return `<rect x="${Number(x) - 22}" y="${barTop}" width="44" height="${barH}" rx="8" fill="${c}" opacity="0.15"/>
+             <rect x="${Number(x) - 22}" y="${barTop}" width="44" height="${barH}" rx="8" fill="none" stroke="${c}" stroke-width="1" opacity="0.3"/>
+             <rect x="${Number(x) - 30}" y="${barTop + barH / 2 - 14}" width="60" height="28" rx="7" fill="${c}"/>
+             <text x="${x}" y="${barTop + barH / 2 + 5}" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">${v}</text>
+             <text x="${x}" y="175" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">${yr}</text>`;
+        }).join("")}
+        <text x="105" y="175" text-anchor="middle" fill="#94a3b8" font-size="11">2010</text>
+        <text x="195" y="175" text-anchor="middle" fill="#94a3b8" font-size="11">2030</text>
+    </svg>`;
 
-    // Population pyramid simplified
-    const popBars = [
-        { w: 16, c: C.slate300 }, { w: 22, c: C.slate300 }, { w: 28, c: C.slate400 },
-        { w: 32, c: C.slate400 }, { w: 26, c: C.blue }, { w: 18, c: C.blue },
+    // Tax bar chart SVG — taller viewBox so 100% label is visible
+    const taxSvg = `<svg width="100%" viewBox="0 0 260 175" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        ${[20, 40, 60, 80, 100].map(pct => {
+            const y = 135 - pct * 1.1;
+            return `<line x1="25" y1="${y}" x2="260" y2="${y}" stroke="#f1f5f9" stroke-width="0.5"/>
+                    <text x="20" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="9">${pct}%</text>`;
+        }).join("")}
+        ${[[0, 40, "2020"], [1, 55, "2030"], [2, 70, "2040"], [3, 85, "2050"], [4, 100, "2058"]].map(([i, pct, yr]) => {
+            const x = 30 + Number(i) * 48;
+            const h = Number(pct) * 1.1;
+            return `<rect x="${x}" y="${135 - h}" width="36" height="${h}" rx="6" fill="${BL}"/>
+                    <text x="${x + 18}" y="153" text-anchor="middle" fill="#94a3b8" font-size="10">${yr}</text>`;
+        }).join("")}
+    </svg>`;
+
+    const cardCss = `border:1px solid #e2e8f0;border-radius:16px;padding:20px;background:#fff;box-shadow:0 4px 16px rgba(15,23,42,0.03)`;
+    return `<div style="${P}">${hdr(3)}
+        <div style="padding:3% 7% 0">
+            <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Warum ist Altersvorsorge wichtig?</h2>
+            <p style="font-size:13px;color:#64748b;line-height:1.7;margin:0 0 18px">Die gesetzliche Rente reicht immer seltener aus, um den Lebensstandard im Alter zu sichern. Faktoren wie der demografische Wandel, Inflation und die steigende Besteuerung f\u00fchren dazu, dass die Versorgungsl\u00fccken gr\u00f6\u00dfer werden. Eine gut geplante Altersvorsorge ist entscheidend, um im Alter finanziell abgesichert zu sein und sich weiterhin W\u00fcnsche zu erf\u00fcllen.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+                <div style="${cardCss};display:flex;flex-direction:column">
+                    <div style="flex:1">${pyramidSvg}</div>
+                    <h3 style="font-size:15px;font-weight:700;margin:10px 0 6px">Demografischer Wandel</h3>
+                    <p style="font-size:12px;color:#64748b;line-height:1.7;margin:0">Immer weniger Erwerbst\u00e4tige finanzieren immer mehr Rentner. Dieses Ungleichgewicht setzt das Rentensystem unter Druck und senkt die durchschnittlichen Rentenanpr\u00fcche.</p>
+                </div>
+                <div style="${cardCss};display:flex;flex-direction:column">
+                    <div style="flex:1">${inflSvg}</div>
+                    <h3 style="font-size:15px;font-weight:700;margin:10px 0 6px">Inflation</h3>
+                    <p style="font-size:12px;color:#64748b;line-height:1.7;margin:0">Steigende Preise reduzieren die Kaufkraft deiner Rente. Das bedeutet: Mit dem gleichen Betrag kannst du dir im Alter deutlich weniger leisten.</p>
+                </div>
+            </div>
+            <div style="${cardCss};padding:28px 24px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center">
+                    <div>
+                        <h3 style="font-size:15px;font-weight:700;margin:0 0 8px">Besteuerung</h3>
+                        <p style="font-size:12px;color:#64748b;line-height:1.7;margin:0">Der zu versteuernde Anteil der gesetzlichen Rente steigt schrittweise an und wird bis 2058 bereits 100% erreichen. Das bedeutet, dass k\u00fcnftige Renten vollst\u00e4ndig besteuert werden, was deine verf\u00fcgbaren Mittel im Ruhestand weiter reduziert.</p>
+                    </div>
+                    <div>${taxSvg}</div>
+                </div>
+            </div>
+        </div>
+        ${ftr(3, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 4 — VERSORGUNGSSITUATION IM ALTER  (Ref P6)
+   ═══════════════════════════════════════════════════════════ */
+function p4(d: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const fullGap = Math.max(0, res.targetInflated - res.pensionNet);
+    const maxV = Math.max(res.targetInflated, inp.targetNetToday) * 1.1;
+    const sc = (v: number) => Math.max(8, (v / maxV) * 420);
+
+    const chart = barChartSvg({
+        bars: [
+            { segments: [{ h: sc(inp.targetNetToday), color: "#94a3b8", value: fmt(inp.targetNetToday), label: "Versorgungsziel" }], bottomLabel: "" },
+            { segments: [{ h: sc(res.targetInflated), color: "#475569", value: fmt(res.targetInflated), label: "mit Inflation" }], bottomLabel: "" },
+            { segments: [
+                { h: sc(res.pensionNet), color: BL, value: fmt(res.pensionNet), label: "Rente netto" },
+                { h: sc(fullGap), color: RD, value: fmt(fullGap), label: "Versorgungsl\u00fccke" },
+            ], bottomLabel: "" },
+        ],
+        width: 600, height: 520, barWidth: 155, gap: 30,
+    });
+
+    return `<div style="${P}">${hdr(4)}
+        <div style="padding:1% 7% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:24px 26px;box-shadow:0 6px 22px rgba(15,23,42,0.04)">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Deine Versorgungssituation im Alter</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 16px">Aktuell betr\u00e4gt dein monatlicher Rentenanspruch ${fmt(res.pensionNet)} netto, w\u00e4hrend dein gew\u00fcnschtes Versorgungsziel bei ${fmt(inp.targetNetToday)} liegt. Um im Alter von ${inp.retirementAge} die gleiche Kaufkraft wie heute zu haben, m\u00fcsste dein Versorgungsziel ${fmt(res.targetInflated)} betragen.</p>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+                    ${kpi("Vorhandene Gesamtrente", fmt(res.pensionNet), NV, IC.piggy(SL, 20), "#f1f5f9", "#e2e8f0")}
+                    ${kpi("Versorgungsziel", fmt(res.targetInflated), EM, IC.target(BL, 20), "#dbeafe", "#bfdbfe")}
+                    ${kpi("Deine Versorgungsl\u00fccke", fmt(fullGap), RD, IC.notEqual(RD, 20), "#fee2e2", "#fecaca")}
+                </div>
+                ${chart}
+                <div style="display:flex;align-items:center;justify-content:space-around;margin-top:14px;padding-top:14px;border-top:1px solid #f1f5f9">
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#64748b"><span style="display:inline-flex;align-items:center;line-height:0">${IC.clock(SL, 14)}</span><span style="position:relative;top:-7px">Heute</span></span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#64748b"><span style="display:inline-flex;align-items:center;line-height:0">${IC.trendUp(SL, 14)}</span><span style="position:relative;top:-7px">Renteneintritt ${res.retirementYear} mit ${inp.retirementAge} Jahren</span></span>
+                </div>
+            </div>
+        </div>
+        ${ftr(4, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 5 — NACH HEUTIGER KAUFKRAFT  (Ref P8)
+   ═══════════════════════════════════════════════════════════ */
+function p5(d: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const inflF = Math.pow(1 + inp.inflationPct / 100, res.monthsToRet / 12);
+    const pensionReal = res.pensionNet / inflF;
+    const gapReal = Math.max(0, inp.targetNetToday - pensionReal);
+    const maxV = Math.max(inp.targetNetToday, gapReal + pensionReal) * 1.1;
+    const sc = (v: number) => Math.max(8, (v / maxV) * 460);
+
+    const chart = barChartSvg({
+        bars: [
+            { segments: [{ h: sc(inp.targetNetToday), color: "#475569", value: fmt(inp.targetNetToday), label: "Versorgungsziel" }], bottomLabel: "" },
+            { segments: [
+                { h: sc(pensionReal), color: BL, value: fmt(pensionReal), label: "Rente netto" },
+                { h: sc(gapReal), color: RD, value: fmt(gapReal), label: "Versorgungsl\u00fccke" },
+            ], bottomLabel: "" },
+        ],
+        width: 500, height: 440, barWidth: 180, gap: 60,
+    });
+
+    return `<div style="${P}">${hdr(5)}
+        <div style="padding:1% 7% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:24px 26px;box-shadow:0 6px 22px rgba(15,23,42,0.04)">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Deine Versorgungssituation im Alter nach heutiger Kaufkraft</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 16px">Die folgende Grafik zeigt dein Versorgungsziel und deine Rentenansp\u00fcche nach heutiger Kaufkraft. Entscheidend ist die inflationsbereinigte L\u00fccke \u2013 das, was dein Anspruch wert w\u00e4re, wenn du morgen in Rente gehen w\u00fcrdest.</p>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+                    ${kpi("Vorhandene Gesamtrente", fmt(pensionReal), NV, IC.piggy(SL, 20), "#f1f5f9", "#e2e8f0")}
+                    ${kpi("Versorgungsziel", fmt(inp.targetNetToday), EM, IC.target(BL, 20), "#dbeafe", "#bfdbfe")}
+                    ${kpi("Deine Versorgungsl\u00fccke", fmt(gapReal), RD, IC.notEqual(RD, 20), "#fee2e2", "#fecaca")}
+                </div>
+                ${chart}
+                <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #f1f5f9">
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#64748b"><span style="display:inline-flex;align-items:center;line-height:0">${IC.clock(SL, 14)}</span><span style="position:relative;top:-7px">Heute</span></span>
+                </div>
+            </div>
+        </div>
+        ${ftr(5, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 6 — BENÖTIGTES KAPITAL  (Ref P10)
+   ═══════════════════════════════════════════════════════════ */
+function p6(d: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const savPill = (label: string, value: number, bg: string, barH: number) =>
+        `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1">
+            <div style="width:3px;height:${barH}px;border-radius:2px;background:${bg};opacity:0.35"></div>
+            <div style="padding:14px 18px;border-radius:14px;background:${bg};color:#fff;text-align:center;min-width:120px;box-shadow:0 4px 16px ${bg}33">
+                <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1.2">${fmt(isFinite(value) ? value : 0)}</div>
+                <div style="font-size:11px;opacity:0.85;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;line-height:1">monatlich</div>
+            </div>
+            <span style="font-size:13px;font-weight:700;color:${NV}">${label}</span>
+        </div>`;
+
+    return `<div style="${P}">${hdr(6)}
+        <div style="padding:6% 7% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:24px 26px;box-shadow:0 6px 22px rgba(15,23,42,0.04)">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Ben\u00f6tigtes Kapital zur Schlie\u00dfung der L\u00fccke</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 18px">Um die bestehende Versorgungsl\u00fccke zu schlie\u00dfen, ben\u00f6tigst du ein bestimmtes Kapital, das wir auf Basis einer angenommenen Rendite von ${fmtPct(inp.returnSavingPct)} und einer j\u00e4hrlichen Inflation von ${fmtPct(inp.inflationPct)} berechnet haben.</p>
+                <div style="text-align:center;margin-bottom:8px">
+                    <div style="font-size:44px;font-weight:800;color:#10b981;line-height:1.1">${fmt(res.requiredCapitalFull)}</div>
+                    <div style="font-size:14px;color:#64748b;margin-top:8px">Ben\u00f6tigtes Kapital bei einer angenommenen Rendite von ${fmtPct(inp.returnSavingPct)}</div>
+                </div>
+                ${growthChartSvg(660, 280)}
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:26px 26px;box-shadow:0 6px 22px rgba(15,23,42,0.04);margin-top:18px">
+                <h3 style="font-size:20px;font-weight:700;margin:0 0 8px">Notwendige monatliche Sparrate</h3>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 22px">Damit du deine Versorgungsl\u00fccke schlie\u00dfen kannst, ergibt sich folgendes Sparszenario:</p>
+                <div style="display:flex;gap:20px;justify-content:center;margin-bottom:22px">
+                    ${savPill("Heute", res.requiredSavingNow, EM, 50)}
+                    ${savPill("In 4 Jahren", res.requiredIn4, AM, 30)}
+                    ${savPill("In 8 Jahren", res.requiredIn8, RD, 14)}
+                </div>
+                <div style="border-radius:12px;background:#f8fafc;padding:14px 18px;font-size:13px;color:#475569;line-height:1.7"><b>Wichtig:</b> Je fr\u00fcher du beginnst, desto geringer ist die monatliche Sparrate, die du aufwenden musst. Ein sp\u00e4terer Start f\u00fchrt zu einer deutlich h\u00f6heren Belastung.</div>
+            </div>
+        </div>
+        ${ftr(6, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 7 — START-SPARRATE  (Ref P11)
+   ═══════════════════════════════════════════════════════════ */
+function p7(d: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const covPct = Math.round(res.coverage * 100);
+    const r = 135;
+    const circ = 2 * Math.PI * r;
+    const covDash = Math.min(res.coverage, 1) * circ;
+    const yrs = (res.monthsToRet / 12).toFixed(2);
+    const LG = "#059669"; /* natural emerald for this page */
+
+    /* Large donut — scaled to 320px, viewBox stays 360 for positioning */
+    const donutSvg = `<svg width="320" height="320" viewBox="0 0 360 360" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="180" cy="180" r="${r}" fill="none" stroke="#e8ede5" stroke-width="24"/>
+        <circle cx="180" cy="180" r="${r}" fill="none" stroke="${LG}" stroke-width="26" stroke-linecap="round" stroke-dasharray="${covDash} ${circ}" transform="rotate(-90 180 180)"/>
+        <text x="180" y="150" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">Zielerreichung</text>
+        <text x="180" y="200" text-anchor="middle" fill="${LG}" font-size="52" font-weight="700">${covPct}%</text>
+        <text x="180" y="224" text-anchor="middle" fill="${LG}" font-size="16" font-weight="600">erreicht</text>
+    </svg>`;
+
+    /* Target/bullseye icon — self-contained SVG with bg circle, all fills for html2canvas */
+    const targetIconSvg = `<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="24" r="23" fill="#ecfdf5"/>
+        <circle cx="24" cy="24" r="12" fill="#d1fae5"/>
+        <circle cx="24" cy="24" r="8" fill="#6ee7b7"/>
+        <circle cx="24" cy="24" r="4" fill="${LG}"/>
+    </svg>`;
+
+    /* Arrow right — filled rect + polygon for html2canvas */
+    const arrowSvg = `<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="16.5" width="20" height="3" rx="1.5" fill="#cbd5e1"/>
+        <polygon points="24,11 32,18 24,25" fill="#cbd5e1"/>
+    </svg>`;
+
+    /* Up arrow with bg circle — all fills for html2canvas */
+    const upArrowSvg = `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="22" cy="22" r="21" fill="#ecfdf5"/>
+        <polygon points="22,11 30,21 26,21 26,33 18,33 18,21 14,21" fill="${LG}"/>
+    </svg>`;
+
+    return `<div style="${P}">${hdr(7)}
+        <div style="padding:8% 7% 0">
+            <div style="border-radius:20px;padding:32px 34px 24px;background:#fafbf9;border:1px solid #eff0ed;min-height:800px;display:flex;flex-direction:column">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Deine Entscheidung: Die Start-Sparrate</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 32px">Du hast dich f\u00fcr eine monatliche Sparrate von ${fmt(inp.desiredSaving)} entschieden. Damit schlie\u00dft du ${fmtPctShort(res.coverage * 100)} deiner aktuellen Versorgungsl\u00fccke. Mit dieser Sparrate erreichst du bereits einen bedeutenden Teil deines Versorgungsziels, kannst aber jederzeit flexibel nachsteuern, falls du deine Absicherung weiter ausbauen m\u00f6chtest.</p>
+
+                <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:36px;flex:1">
+                    <div style="border:1px solid #e2e8f0;border-radius:18px;padding:26px 30px;background:#fff;box-shadow:0 2px 12px rgba(15,23,42,0.04);text-align:center;min-width:200px;max-width:240px">
+                        <div style="display:inline-block">${targetIconSvg}</div>
+                        <div style="font-size:32px;font-weight:800;color:${NV};margin-top:16px;letter-spacing:-0.5px;white-space:nowrap">${fmt(inp.desiredSaving)}</div>
+                        <div style="font-size:13px;color:#64748b;margin-top:8px">Gew\u00fcnschte monatliche Sparrate</div>
+                    </div>
+                    <div style="flex-shrink:0">${arrowSvg}</div>
+                    <div style="flex-shrink:0">${donutSvg}</div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px">
+                    <div style="border:1px solid #e2e8f0;border-radius:16px;padding:24px 20px;background:#fff;text-align:center">
+                        <div style="display:inline-block;margin-bottom:12px">${upArrowSvg}</div>
+                        <div style="font-size:13px;font-weight:600;color:#64748b;line-height:1.4">Verf\u00fcgbares Kapital zu Rentenbeginn</div>
+                        <div style="font-size:24px;font-weight:800;color:${LG};margin-top:10px">+${fmt(res.capitalNow)}</div>
+                    </div>
+                    <div style="border:1px solid #e2e8f0;border-radius:16px;padding:24px 20px;background:#fff;text-align:center">
+                        <div style="display:inline-block;margin-bottom:12px">${upArrowSvg}</div>
+                        <div style="font-size:13px;font-weight:600;color:#64748b;line-height:1.4">Zus\u00e4tzliche Rente im Jahr ${res.retirementYear}</div>
+                        <div style="font-size:24px;font-weight:800;color:${LG};margin-top:10px">+${fmt(res.privatePayout)}</div>
+                    </div>
+                </div>
+
+                <div style="border:1px solid #e2e5df;border-radius:12px;padding:14px 0;display:flex;background:#fff">
+                    <span style="flex:1;text-align:center;font-size:13px;font-weight:600;color:#94a3b8;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-right:1px solid #e2e5df">${IC.clock("#94a3b8", 15)}<span style="position:relative;top:-7px">${yrs} Jahre Laufzeit</span></span>
+                    <span style="flex:1;text-align:center;font-size:13px;font-weight:600;color:#94a3b8;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-right:1px solid #e2e5df">${IC.trendUp("#94a3b8", 15)}<span style="position:relative;top:-7px">${fmtPct(inp.returnSavingPct)} Rendite</span></span>
+                    <span style="flex:1;text-align:center;font-size:13px;font-weight:600;color:#94a3b8;display:inline-flex;align-items:center;justify-content:center;gap:6px">${IC.trendDown("#94a3b8", 15)}<span style="position:relative;top:-7px">${fmtPct(inp.inflationPct)} Inflation</span></span>
+                </div>
+            </div>
+        </div>
+        ${ftr(7, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 8 — ZINSESZINSEFFEKT  (Ref P12)
+   ═══════════════════════════════════════════════════════════ */
+function p8(d: PdfRequestData, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const dc4 = res.capitalIn4 - res.capitalNow;
+    const di4 = res.interestIn4 - res.interestNow;
+    const dc8 = res.capitalIn8 - res.capitalNow;
+    const di8 = res.interestIn8 - res.interestNow;
+    const LG = "#10b981";
+
+    /* Filled trend-down icon for html2canvas */
+    const trendDownFilled = `<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="22,17 13.5,8.5 8.5,13.5 2,7 2,11 8.5,17.5 13.5,12.5 18,17" fill="${RD}"/>
+        <polygon points="16,17 22,17 22,11" fill="${RD}"/>
+    </svg>`;
+
+    // Today row — green values, plain "Heute" text in green, NO border-bottom
+    const todayRow = `
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:center;padding:30px 0">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center">
+                <div style="font-size:22px;font-weight:800;color:${LG};white-space:nowrap;width:100%;text-align:center">${fmt(res.capitalNow)}</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:center;padding:0 18px">
+                <span style="font-size:14px;font-weight:700;color:${LG};white-space:nowrap;background:#fff;padding:2px 10px;position:relative;z-index:1">Heute</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center">
+                <div style="font-size:22px;font-weight:800;color:${LG};white-space:nowrap;width:100%;text-align:center">${fmt(res.interestNow)}</div>
+            </div>
+        </div>`;
+
+    // Delayed rows — small trend icons, plain label, red diff text (no pill)
+    const delayRow = (label: string, capVal: string, intVal: string, capDiff: number, intDiff: number, isLast: boolean) => `
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:center;padding:28px 0;${!isLast ? "border-bottom:1px solid #f1f5f9;" : ""}">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+                <div style="width:30px;height:30px;border-radius:50%;background:#fee2e2;display:inline-flex;align-items:center;justify-content:center">${trendDownFilled}</div>
+                <div style="font-size:22px;font-weight:800;color:${NV};white-space:nowrap">${capVal}</div>
+                <span style="font-size:13px;font-weight:700;color:${RD};white-space:nowrap">${fmt(capDiff)}</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:center;padding:0 18px">
+                <span style="font-size:14px;font-weight:700;color:#64748b;white-space:nowrap;background:#fff;padding:2px 10px;position:relative;z-index:1">${label}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+                <div style="width:30px;height:30px;border-radius:50%;background:#fee2e2;display:inline-flex;align-items:center;justify-content:center">${trendDownFilled}</div>
+                <div style="font-size:22px;font-weight:800;color:${NV};white-space:nowrap">${intVal}</div>
+                <span style="font-size:13px;font-weight:700;color:${RD};white-space:nowrap">${fmt(intDiff)}</span>
+            </div>
+        </div>`;
+
+    return `<div style="${P}">${hdr(8)}
+        <div style="padding:5% 7% 0">
+            <div style="border-radius:20px;padding:30px 32px;background:#fff">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Nutzen des Zinseszinseffekts: Warum ein fr\u00fcher Start entscheidend ist</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 8px">Dank des fr\u00fchen Starts hast du ausreichend Zeit, um Verm\u00f6gen effektiv aufzubauen und den Zinseszinseffekt voll auszunutzen.</p>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 24px">Selbst ein minimal sp\u00e4terer Start in 4 oder 8 Jahren w\u00fcrde den Zinsgewinn deutlich reduzieren und den Aufbau deines Altersvorsorgeverm\u00f6gens sp\u00fcrbar beeintr\u00e4chtigen.</p>
+                <div style="border:1px solid #e2e8f0;border-radius:18px;padding:0 28px;background:#fff;position:relative;overflow:hidden">
+                    <div style="position:absolute;left:50%;top:80px;bottom:0;width:1px;background:#e8ecf0;z-index:0"></div>
+                    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0;padding:22px 0;border-bottom:1px solid #e8ecf0">
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:10px">${ib(IC.up(LG, 20), "#ecfdf5", "#d1fae5", 44)}<span style="font-size:17px;font-weight:700">Kapital</span></div>
+                        <div style="width:60px"></div>
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:10px">${ib(IC.chartLine(LG, 20), "#ecfdf5", "#d1fae5", 44)}<span style="font-size:17px;font-weight:700">Zinsgewinn</span></div>
+                    </div>
+                    ${todayRow}
+                    ${delayRow("In 4 Jahren", fmt(res.capitalIn4), fmt(res.interestIn4), dc4, di4, false)}
+                    ${delayRow("In 8 Jahren", fmt(res.capitalIn8), fmt(res.interestIn8), dc8, di8, true)}
+                </div>
+            </div>
+        </div>
+        ${ftr(8, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 9 — ZUSAMMENFASSUNG  (Ref P13)
+   ═══════════════════════════════════════════════════════════ */
+function p9(d: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const inflF = Math.pow(1 + inp.inflationPct / 100, res.monthsToRet / 12);
+    const pensionReal = res.pensionNet / inflF;
+    const totalReal = res.totalPension / inflF;
+    const fullGap = Math.max(0, res.targetInflated - res.pensionNet - res.privatePayout);
+    const maxV = Math.max(res.targetInflated, fullGap + res.privatePayout + res.pensionNet, inp.targetNetToday) * 1.1;
+    const sc = (v: number) => Math.max(4, (v / maxV) * 370);
+
+    const chart = barChartSvg({
+        bars: [
+            { segments: [{ h: sc(inp.targetNetToday), color: "#94a3b8", value: fmt(inp.targetNetToday), label: "Versorgungsziel" }], bottomLabel: "" },
+            { segments: [{ h: sc(res.targetInflated), color: "#475569", value: fmt(res.targetInflated), label: "mit Inflation" }], bottomLabel: "" },
+            { segments: [
+                { h: sc(res.pensionNet), color: BL, value: fmt(res.pensionNet), label: "Rente netto" },
+                { h: sc(res.privatePayout), color: EM, value: fmt(res.privatePayout), label: "Neue Rente" },
+                { h: sc(fullGap), color: RD, value: fmt(fullGap), label: "L\u00fccke" },
+            ], bottomLabel: "" },
+        ],
+        width: 600, height: 400, barWidth: 145, gap: 40,
+    });
+
+    const compCard = (title: string, iconHtml: string, nomVal: number, realVal: number) =>
+        `<div style="border:1px solid #e2e8f0;border-radius:18px;overflow:hidden;box-shadow:0 4px 16px rgba(15,23,42,0.03);flex:1">
+            <div style="background:#fff;padding:20px 24px;display:flex;flex-direction:column;align-items:center;gap:10px">
+                ${iconHtml}
+                <div style="font-size:16px;font-weight:700;text-align:center">${title}</div>
+            </div>
+            <div style="height:1px;background:#e8ecf0"></div>
+            <div style="background:#f8fafc;padding:16px 24px;display:flex;flex-direction:column;align-items:center">
+                <div style="text-align:center;margin-bottom:12px;width:100%">
+                    <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Im Alter</div>
+                    <div style="font-size:24px;font-weight:800;color:${EM}">${fmt(nomVal)}</div>
+                </div>
+                <div style="height:1px;background:#e8ecf0;margin-bottom:12px;width:100%"></div>
+                <div style="text-align:center;width:100%">
+                    <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Nach heutiger Kaufkraft</div>
+                    <div style="font-size:24px;font-weight:800;color:${EM}">${fmt(realVal)}</div>
+                </div>
+            </div>
+        </div>`;
+
+    return `<div style="${P}">${hdr(9)}
+        <div style="padding:1% 7% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:24px 26px;box-shadow:0 6px 22px rgba(15,23,42,0.04)">
+                <h2 style="font-size:22px;font-weight:700;margin:0 0 10px">Zusammenfassung</h2>
+                <p style="font-size:14px;color:#64748b;line-height:1.7;margin:0 0 20px">Durch den rechtzeitigen Start deiner Altersvorsorge bist du auf dem besten Weg, deine finanzielle Zukunft abzusichern. Jeder Monat z\u00e4hlt \u2013 starte jetzt und sichere dir ein ruhiges und finanziell stabiles Leben im Alter.</p>
+                <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;margin-bottom:22px">
+                    ${compCard("Deine bisherige Gesamtrente", ib(IC.trendDown("#b91c1c", 26), "#fef2f2", "#fecaca", 52), res.pensionNet, pensionReal)}
+                    <div style="display:flex;align-items:center;justify-content:center">${IC.arrowRight("#cbd5e1", 28)}</div>
+                    ${compCard("Deine neue Gesamtrente", ib(IC.up("#059669", 26), "#ecfdf5", "#a7f3d0", 52), res.totalPension, totalReal)}
+                </div>
+                ${chart}
+            </div>
+        </div>
+        ${ftr(9, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 10 — BERECHNUNGSGRUNDLAGEN  (Ref P14)
+   ═══════════════════════════════════════════════════════════ */
+function p10(d: PdfRequestData, inp: PensionPdfInput): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    const LG = "#10b981";
+    const modeLabel = inp.mode === "employee" ? "Angestellter" : inp.mode === "versorgungswerk" ? "Versorgungswerk" : "Selbstst\u00e4ndig";
+    const cardTitle = (icon: string, bg: string, border: string, title: string) =>
+        `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">${ib(icon, bg, border, 34)}<span style="font-weight:700;font-size:16px;line-height:34px">${title}</span></div>`;
+    const miniCard = `border:1px solid #e2e8f0;border-radius:16px;padding:20px 22px;background:#fff;box-shadow:0 4px 16px rgba(15,23,42,0.03)`;
+
+    return `<div style="${P}">${hdr(10, "Berechnungsgrundlagen deiner Altersvorsorge")}
+        <div style="padding:3.5% 7% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:20px;padding:28px 28px;box-shadow:0 6px 22px rgba(15,23,42,0.04)">
+                <h2 style="font-size:21px;font-weight:700;margin:0 0 10px">Berechnungsgrundlagen deiner Altersvorsorge</h2>
+                <p style="font-size:13px;color:#64748b;line-height:1.7;margin:0 0 20px">Hier findest du die wesentlichen Faktoren und Annahmen, die den Berechnungen zugrunde liegen \u2013 verst\u00e4ndlich aufbereitet, um dir volle Transparenz zu bieten.</p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+                    <div style="${miniCard}">
+                        ${cardTitle(IC.user(LG, 16), "#ecfdf5", "#d1fae5", "Versicherungsnehmer")}
+                        ${R("Geburtsdatum", fmtDateLong(inp.dob))}
+                        ${R("Berufseintritt", fmtDateLong(inp.jobEntry))}
+                        ${R("Berufsart", modeLabel)}
+                        ${R("Monatliches Bruttoeinkommen", fmt(inp.monthlyGross))}
+                        ${R("Kirchensteuerpflichtig", inp.churchTax ? "Ja" : "Nein")}
+                    </div>
+                    <div style="${miniCard}">
+                        ${cardTitle(IC.settings(LG, 16), "#ecfdf5", "#d1fae5", "Annahme zur Rente")}
+                        ${R("Renteneintrittsalter", `${inp.retirementAge} Jahren`)}
+                        ${R("Lebenserwartung", `${inp.lifeExpectancy} Jahren`)}
+                        ${R("Rentensteigerung", fmtPct(inp.inflationPct))}
+                        ${R("Art der Krankenversicherung", inp.healthType === "legal" ? "Gesetzlich" : "Privat")}
+                        ${R("Mit KvdR", "Nein")}
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div style="${miniCard}">
+                        ${cardTitle(IC.folder(LG, 16), "#ecfdf5", "#d1fae5", "Bestehende Vorsorge")}
+                        ${inp.initialLumpSum > 0 ? `${R("Vorhandenes Kapital", fmt(inp.initialLumpSum))}${R("Gew\u00fcnschte Sparrate", fmt(inp.desiredSaving))}` : `<div style="font-size:13px;color:#94a3b8;padding:8px 0">Keine Angabe</div>`}
+                    </div>
+                    <div style="${miniCard}">
+                        ${cardTitle(IC.check(LG, 16), "#ecfdf5", "#d1fae5", "Vorsorgungsziel")}
+                        ${R("Inflation", fmtPct(inp.inflationPct))}
+                        ${R("Rendite Ansparphase", fmtPct(inp.returnSavingPct))}
+                        ${R("Rendite Entnahmephase", fmtPct(inp.returnTakeoutPct))}
+                        ${R("Versorgungsziel", fmt(inp.targetNetToday))}
+                    </div>
+                </div>
+            </div>
+        </div>
+        ${ftr(10, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 11 — ABSCHLUSSBRIEF  (Ref P15)
+   ═══════════════════════════════════════════════════════════ */
+function p11(d: PdfRequestData, avatarDataUrl: string): string {
+    const name = `${d.firstName} ${d.lastName}`;
+
+    return `<div style="${P}">${hdr(11)}
+        <div style="padding:4% 8% 0">
+            <div style="border:1px solid #e2e8f0;border-radius:24px;padding:36px 36px;box-shadow:0 10px 28px rgba(15,23,42,0.05)">
+                <p style="font-weight:700;font-size:24px;margin:0 0 28px">Hey ${d.firstName},</p>
+                <p style="font-size:17px;color:#64748b;line-height:2;margin-bottom:28px">du hast jetzt einen klaren Blick auf deine Versorgungssituation im Alter \u2013 auf Basis deiner eigenen Zahlen. Du kennst deine Versorgungsl\u00fccke, das ben\u00f6tigte Kapital und den Effekt eines fr\u00fchen Starts. Das einmal schwarz auf wei\u00df zu haben, ist eine starke Grundlage f\u00fcr deine n\u00e4chsten Entscheidungen.</p>
+                <p style="font-size:17px;color:#64748b;line-height:2;margin-bottom:30px">Wenn du m\u00f6chtest, schaue ich mir dein Ergebnis gerne einmal pers\u00f6nlich mit dir an und helfe dir dabei, es auf deine Gesamtsituation einzuordnen. Ich freue mich, von dir zu h\u00f6ren.</p>
+                <p style="font-size:17px;color:#64748b;margin-bottom:28px">Beste Gr\u00fc\u00dfe,</p>
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:32px"><img src="${avatarDataUrl}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0" /><div><span style="font-weight:700;font-size:18px">Julian Karges</span></div></div>
+                <div style="border:1px solid #e2e8f0;border-radius:16px;padding:28px 32px;text-align:center">
+                    <p style="font-size:17px;font-weight:700;line-height:1.7;margin:0 0 14px;color:${NV}">Der beste Zeitpunkt, um zu investieren, war vor 20 Jahren. Der zweitbeste Zeitpunkt ist jetzt.</p>
+                    <span style="font-size:13px;color:#94a3b8">Warren Buffet, US-amerikanischer Investor</span>
+                </div>
+            </div>
+        </div>
+        ${ftr(11, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 12 — DISCLAIMER
+   ═══════════════════════════════════════════════════════════ */
+function p12(d: PdfRequestData): string {
+    const name = `${d.firstName} ${d.lastName}`;
+    return `<div style="${P}">${hdr(12)}
+        <div style="padding:4% 8% 0">
+            <p style="font-weight:700;font-size:22px;margin:0 0 24px;color:${NV}">Disclaimer</p>
+            <p style="font-size:14px;color:#64748b;line-height:1.9;margin:0 0 18px">Diese Auswertung wurde mithilfe eines Online-Rechners auf der Website von Julian Karges \u2013 Karges Kapital erstellt. Die zugrunde liegenden Berechnungen dienen der privaten Finanzplanung, insbesondere in den Bereichen Einkommenssicherung, Altersvorsorge und Verm\u00f6gensaufbau, und basieren auf allgemein anerkannten finanzmathematischen Methoden.</p>
+            <p style="font-size:14px;color:#64748b;line-height:1.9;margin:0 0 18px">Bitte beachte, dass Modellannahmen wie konstant bleibende Renditen, Inflationsraten oder bestimmte steuerliche Rahmenbedingungen zu Abweichungen von der tats\u00e4chlichen Entwicklung f\u00fchren k\u00f6nnen. Die dargestellten Ergebnisse sind Prognosen auf Basis der von dir eingegebenen Daten \u2013 sie stellen keine Garantie f\u00fcr zuk\u00fcnftige Wertentwicklungen dar.</p>
+            <p style="font-size:14px;color:#64748b;line-height:1.9;margin:0 0 18px">Die in diesem Dokument pr\u00e4sentierten Informationen stellen weder ein verbindliches Angebot noch eine Anlageberatung im Sinne des Wertpapierhandelsgesetzes (WpHG), eine steuerliche Beratung oder eine rechtliche Beratung dar. Steuerliche und gesetzliche Vorschriften k\u00f6nnen sich kurzfristig \u00e4ndern und sind von individuellen Faktoren abh\u00e4ngig. F\u00fcr verbindliche Aussagen wende dich bitte an eine qualifizierte Fachperson (z.\u00a0B. Steuerberater*in oder Rechtsanw\u00e4lt*in).</p>
+            <p style="font-size:14px;color:#64748b;line-height:1.9;margin:0 0 18px">Weder Julian Karges noch Karges Kapital \u00fcbernehmen eine Gew\u00e4hr f\u00fcr die Richtigkeit, Vollst\u00e4ndigkeit und Aktualit\u00e4t der hier dargestellten Daten und Ergebnisse. Eine Haftung f\u00fcr Sch\u00e4den, die unmittelbar oder mittelbar aus dem Vertrauen auf die Inhalte dieses Dokuments entstehen, ist \u2013 soweit gesetzlich zul\u00e4ssig \u2013 ausgeschlossen. Du bist daf\u00fcr verantwortlich, vollst\u00e4ndige und korrekte Angaben zu deiner pers\u00f6nlichen und finanziellen Situation zu machen, da auf Basis dieser Informationen die Berechnungen durchgef\u00fchrt werden.</p>
+            <p style="font-size:14px;color:#64748b;line-height:1.9;margin:0 0 28px">Dieses Dokument dient deiner Orientierung und ersetzt keine professionelle Beratung. F\u00fcr spezielle Fragen oder zur Kl\u00e4rung pers\u00f6nlicher Umst\u00e4nde wende dich bitte an eine entsprechend qualifizierte Fachperson.</p>
+            <p style="font-size:14px;font-weight:700;color:${NV};margin:0 0 4px">Julian Karges \u2013 Karges Kapital</p>
+            <p style="font-size:13px;color:#64748b;line-height:1.7;margin:0">Selbstst\u00e4ndiger Handelsvertreter gem\u00e4\u00df \u00a7 84 HGB<br/>Darmst\u00e4dter Landstra\u00dfe 110, 60598 Frankfurt am Main<br/>E-Mail: juliankarges03@icloud.com</p>
+        </div>
+        ${ftr(12, name)}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN EXPORT — HTML → Canvas → PDF
+   ═══════════════════════════════════════════════════════════ */
+async function loadImageAsDataUrl(path: string): Promise<string> {
+    const resp = await fetch(path);
+    const blob = await resp.blob();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function createCircularAvatar(imgDataUrl: string, sizePx = 300): Promise<string> {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = sizePx;
+            canvas.height = sizePx;
+            const ctx = canvas.getContext('2d')!;
+            ctx.beginPath();
+            ctx.arc(sizePx / 2, sizePx / 2, sizePx / 2, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            const srcSize = Math.min(img.width, img.height);
+            const srcX = (img.width - srcSize) / 2;
+            ctx.drawImage(img, srcX, 0, srcSize, srcSize, 0, 0, sizePx, sizePx);
+            resolve(canvas.toDataURL('image/png'));
+        };
+        img.src = imgDataUrl;
+    });
+}
+
+export async function generatePensionPdf(
+    requestData: PdfRequestData,
+    result: PensionPdfResult,
+    input: PensionPdfInput,
+): Promise<{ blob: Blob; fileName: string }> {
+    const rawAvatar = await loadImageAsDataUrl('/images/julian-karges-profile.png');
+    const avatarDataUrl = await createCircularAvatar(rawAvatar, 300);
+
+    const pages = [
+        p1(requestData, result),
+        p2(requestData, avatarDataUrl),
+        p3(requestData),
+        p4(requestData, input, result),
+        p5(requestData, input, result),
+        p6(requestData, input, result),
+        p7(requestData, input, result),
+        p8(requestData, result),
+        p9(requestData, input, result),
+        p10(requestData, input),
+        p11(requestData, avatarDataUrl),
+        p12(requestData),
     ];
-    popBars.forEach((b, i) => {
-        sf(d, b.c); d.roundedRect(popX - b.w / 2 - 10, popY + i * 7, b.w / 2, 5.5, 1.5, 1.5, "F");
-        sf(d, b.c); d.roundedRect(popX + 10 - b.w / 2, popY + i * 7, b.w / 2, 5.5, 1.5, 1.5, "F");
-    });
 
-    // Legend
-    sf(d, C.navy); d.roundedRect(ML + 10, popY - 2, 22, 6, 2, 2, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(5); sc(d, C.white); d.text("M\u00E4nner", ML + 12, popY + 2);
-    sf(d, C.navy); d.roundedRect(ML + halfW - 32, popY - 2, 22, 6, 2, 2, "F");
-    d.text("Frauen", ML + halfW - 30, popY + 2);
-
-    d.setFont("helvetica", "bold"); d.setFontSize(10); sc(d, C.navy);
-    d.text("Demografischer Wandel", ML + 10, y + 72);
-    para(d, "Immer weniger Erwerbst\u00E4tige finanzieren immer mehr Rentner. Das Rentensystem steht unter Druck.", y + 78, { sz: 8, lh: 3.8, x: ML + 10, w: halfW - 20, color: C.slate400 });
-
-    // Right card: Inflation
-    card(d, ML + halfW + 8, y, halfW, 100, { radius: 7 });
-    const infX = ML + halfW + 18;
-    const decades = [2000, 2010, 2020, 2030, 2040];
-    const euroVals = ["0,60\u20AC", "1,20\u20AC", "2,20\u20AC", "3,50\u20AC", "4,50\u20AC"];
-    const pillColors: RGB[] = [C.emerald, C.emeraldDark, C.amber, C.red, C.red];
-    const stepW = (halfW - 28) / 4;
-
-    decades.forEach((dec, i) => {
-        const px = infX + i * stepW;
-        const pillH = 10 + i * 5;
-        sf(d, pillColors[i]); opacity(d, 0.15);
-        d.roundedRect(px - 5, popY + 30 - pillH, 12, pillH + 4, 2, 2, "F");
-        opacity(d, 1);
-        sf(d, pillColors[i]); d.roundedRect(px - 4, popY + 30 - pillH + 2, 10, 7, 2, 2, "F");
-        d.setFont("helvetica", "bold"); d.setFontSize(5); sc(d, C.white);
-        d.text(euroVals[i], px + 1, popY + 30 - pillH + 6.5, { align: "center" });
-        d.setFont("helvetica", "bold"); d.setFontSize(5.5); sc(d, C.navy);
-        d.text(`${dec}`, px + 1, popY + 38, { align: "center" });
-    });
-
-    d.setFont("helvetica", "bold"); d.setFontSize(10); sc(d, C.navy);
-    d.text("Inflation", infX - 8, y + 72);
-    para(d, "Steigende Preise reduzieren die Kaufkraft Ihrer Rente. Mit dem gleichen Betrag k\u00F6nnen Sie sich im Alter deutlich weniger leisten.", y + 78, { sz: 8, lh: 3.8, x: infX - 8, w: halfW - 20, color: C.slate400 });
-
-    y += 108;
-
-    // Bottom card: Besteuerung
-    card(d, ML, y, CW, 80, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(10); sc(d, C.navy);
-    d.text("Besteuerung", ML + 12, y + 16);
-    para(d, "Der zu versteuernde Anteil der gesetzlichen Rente steigt schrittweise und wird bis 2058 bereits 100% erreichen. K\u00FCnftige Renten werden vollst\u00E4ndig besteuert.", y + 22, { sz: 8, lh: 3.8, x: ML + 12, w: halfW - 8, color: C.slate400 });
-
-    // Taxation bar chart
-    const taxX = ML + CW / 2 + 10, taxY = y + 12, taxH = 52;
-    const taxYears = [2020, 2030, 2040, 2050, 2058];
-    const taxPcts = [0.80, 0.90, 0.95, 0.98, 1.0];
-    const taxBarW = 10, taxGap = (CW / 2 - 30) / 5;
-
-    // Y-axis labels
-    [20, 40, 60, 80, 100].forEach((pct, i) => {
-        const ly = taxY + taxH - (pct / 100) * taxH;
-        d.setFont("helvetica", "normal"); d.setFontSize(5); sc(d, C.slate400);
-        d.text(`${pct}%`, taxX - 6, ly + 1.5, { align: "right" });
-        sd(d, C.slate100); d.setLineWidth(0.1);
-        if (i < 4) d.line(taxX, ly, taxX + 5 * (taxBarW + taxGap) - taxGap, ly);
-    });
-
-    taxYears.forEach((yr, i) => {
-        const bx = taxX + i * (taxBarW + taxGap);
-        const bh = taxPcts[i] * taxH;
-        const bc: RGB = i < 2 ? C.blue : i < 4 ? C.indigo : C.indigoDark;
-        sf(d, bc); d.roundedRect(bx, taxY + taxH - bh, taxBarW, bh, 2, 0, "F");
-        d.setFont("helvetica", "bold"); d.setFontSize(5.5); sc(d, C.navy);
-        d.text(`${yr}`, bx + taxBarW / 2, taxY + taxH + 5, { align: "center" });
-    });
-
-    pageFooter(d, 3, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 4 — VERSORGUNGSSITUATION IM ALTER (NOMINAL)
-   ════════════════════════════════════════════════════════ */
-function pageSituationNominal(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 4);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
-
-    card(d, ML, y, CW, 240, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Ihre Versorgungssituation im Alter", ML + 12, y + 16);
-    y += 20;
-    para(d, `Aktuell betr\u00E4gt Ihr monatlicher Rentenanspruch ${fmt(res.pensionNet)} netto, w\u00E4hrend Ihr gew\u00FCnschtes Versorgungsziel bei ${fmt(inp.targetNetToday)} liegt. Um im Alter von ${inp.retirementAge} die gleiche Kaufkraft wie heute zu haben, m\u00FCsste Ihr Versorgungsziel ${fmt(res.targetInflated)} betragen.`, y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 24;
-
-    // 3 metric cards
-    const mw = (CW - 32) / 3;
-    const metrics = [
-        { label: "Vorhandene Gesamtrente", val: fmt(res.pensionNet), c: C.navy, icon: "R" },
-        { label: "Versorgungsziel", val: fmt(res.targetInflated), c: C.emerald, icon: "Z" },
-        { label: "Ihre Versorgungsl\u00FCcke", val: fmt(Math.max(0, res.targetInflated - res.pensionNet)), c: C.red, icon: "!" },
-    ];
-    metrics.forEach((m, i) => {
-        const mx = ML + 10 + i * (mw + 6);
-        card(d, mx, y, mw, 36, { fill: C.white, radius: 5 });
-        iconCircle(d, mx + mw / 2, y + 10, m.c, m.icon, 4.5);
-        d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-        d.text(m.label, mx + mw / 2, y + 20, { align: "center" });
-        d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, m.c);
-        d.text(m.val, mx + mw / 2, y + 30, { align: "center" });
-    });
-    y += 42;
-
-    // 3-bar chart
-    const chartH = 100, chartBottom = y + chartH;
-    const maxVal = Math.max(inp.targetNetToday, res.targetInflated, res.pensionNet + res.gap + res.privatePayout) * 1.05;
-    const barW = 30, barGap2 = 16;
-    const barStartX = ML + CW / 2 - (barW * 3 + barGap2 * 2) / 2;
-
-    // Bar 1: Versorgungsziel
-    const h1 = (inp.targetNetToday / maxVal) * chartH;
-    sf(d, C.slate300); d.roundedRect(barStartX, chartBottom - h1, barW, h1, 3, 0, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(7); sc(d, C.white);
-    d.text(fmtShort(inp.targetNetToday), barStartX + barW / 2, chartBottom - h1 + 12, { align: "center" });
-
-    // Bar 2: Versorgungsziel mit Inflation
-    const h2 = (res.targetInflated / maxVal) * chartH;
-    sf(d, C.slate400); d.roundedRect(barStartX + barW + barGap2, chartBottom - h2, barW, h2, 3, 0, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(7); sc(d, C.white);
-    d.text(fmtShort(res.targetInflated), barStartX + barW + barGap2 + barW / 2, chartBottom - h2 + 12, { align: "center" });
-
-    // Bar 3: Stacked (pension blue + gap red)
-    const stackX = barStartX + 2 * (barW + barGap2);
-    const totalStack = res.pensionNet + res.gap;
-    const h3 = (totalStack / maxVal) * chartH;
-    const pensionH = totalStack > 0 ? (res.pensionNet / totalStack) * h3 : 0;
-    const gapH = h3 - pensionH;
-
-    sf(d, C.red); d.roundedRect(stackX, chartBottom - h3, barW, gapH, 3, 0, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(6); sc(d, C.white);
-    if (gapH > 14) d.text(fmtShort(res.gap), stackX + barW / 2, chartBottom - h3 + gapH / 2 + 2, { align: "center" });
-
-    sf(d, C.blue); d.rect(stackX, chartBottom - pensionH, barW, pensionH, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(6); sc(d, C.white);
-    if (pensionH > 14) d.text(fmtShort(res.pensionNet), stackX + barW / 2, chartBottom - pensionH / 2 + 2, { align: "center" });
-
-    y = chartBottom + 4;
-
-    // Labels
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate500);
-    d.text("Versorgungsziel", barStartX + barW / 2, y + 4, { align: "center" });
-    d.text("+ Inflation", barStartX + barW + barGap2 + barW / 2, y + 4, { align: "center" });
-    d.text("Deckung", stackX + barW / 2, y + 4, { align: "center" });
-
-    y += 10;
-    // Timeline labels
-    iconCircle(d, ML + 20, y + 4, C.slate400, "T", 3);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Heute", ML + 28, y + 5.5);
-    iconCircle(d, ML + CW - 60, y + 4, C.emerald, "R", 3);
-    d.text(`Renteneintritt ${res.retirementYear} mit ${inp.retirementAge} Jahren`, ML + CW - 52, y + 5.5);
-
-    pageFooter(d, 4, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 5 — VERSORGUNGSSITUATION NACH HEUTIGER KAUFKRAFT
-   ════════════════════════════════════════════════════════ */
-function pageSituationReal(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 5);
-    const name = `${data.firstName} ${data.lastName}`;
-    const dv = derivedValues(inp, res);
-    let y = 34;
-
-    card(d, ML, y, CW, 240, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(12.5); sc(d, C.navy);
-    const headLines = d.splitTextToSize("Ihre Versorgungssituation im Alter nach heutiger Kaufkraft", CW - 24) as string[];
-    headLines.forEach((line: string, i: number) => d.text(line, ML + 12, y + 16 + i * 6));
-    y += 14 + headLines.length * 6;
-    para(d, "Die folgende Grafik zeigt Ihr Versorgungsziel und Ihre Rentenansprüche nach heutiger Kaufkraft. Entscheidend ist die inflationsbereinigte Lücke — das, was Ihr Anspruch wert wäre, wenn Sie morgen in Rente gehen würden.", y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 20;
-
-    // 3 metric cards (real values)
-    const mw = (CW - 32) / 3;
-    const metricsReal = [
-        { label: "Vorhandene Gesamtrente", val: fmt(dv.pensionNetReal), c: C.navy, icon: "R" },
-        { label: "Versorgungsziel", val: fmt(inp.targetNetToday), c: C.emerald, icon: "Z" },
-        { label: "Ihre Versorgungsl\u00FCcke", val: fmt(dv.gapReal), c: C.red, icon: "!" },
-    ];
-    metricsReal.forEach((m, i) => {
-        const mx = ML + 10 + i * (mw + 6);
-        card(d, mx, y, mw, 36, { fill: C.white, radius: 5 });
-        iconCircle(d, mx + mw / 2, y + 10, m.c, m.icon, 4.5);
-        d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-        d.text(m.label, mx + mw / 2, y + 20, { align: "center" });
-        d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, m.c);
-        d.text(m.val, mx + mw / 2, y + 30, { align: "center" });
-    });
-    y += 42;
-
-    // 2-bar chart (no inflation bar in real view)
-    const chartH = 100, chartBottom = y + chartH;
-    const stackTotal = dv.pensionNetReal + dv.gapReal;
-    const maxVal = Math.max(inp.targetNetToday, stackTotal) * 1.05;
-    const barW = 36, barGap2 = 30;
-    const barStartX = ML + CW / 2 - (barW * 2 + barGap2) / 2;
-
-    const h1 = (inp.targetNetToday / maxVal) * chartH;
-    sf(d, C.slate300); d.roundedRect(barStartX, chartBottom - h1, barW, h1, 3, 0, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(8); sc(d, C.white);
-    d.text(fmtShort(inp.targetNetToday), barStartX + barW / 2, chartBottom - h1 + 14, { align: "center" });
-
-    const h2 = (stackTotal / maxVal) * chartH;
-    const pensionH = stackTotal > 0 ? (dv.pensionNetReal / stackTotal) * h2 : 0;
-    const gapH = h2 - pensionH;
-
-    sf(d, C.red); d.roundedRect(barStartX + barW + barGap2, chartBottom - h2, barW, gapH, 3, 0, "F");
-    if (gapH > 14) {
-        d.setFont("helvetica", "bold"); d.setFontSize(6.5); sc(d, C.white);
-        d.text(fmtShort(dv.gapReal), barStartX + barW + barGap2 + barW / 2, chartBottom - h2 + gapH / 2 + 2, { align: "center" });
-    }
-    sf(d, C.blue); d.rect(barStartX + barW + barGap2, chartBottom - pensionH, barW, pensionH, "F");
-    if (pensionH > 14) {
-        d.setFont("helvetica", "bold"); d.setFontSize(6.5); sc(d, C.white);
-        d.text(fmtShort(dv.pensionNetReal), barStartX + barW + barGap2 + barW / 2, chartBottom - pensionH / 2 + 2, { align: "center" });
-    }
-
-    y = chartBottom + 4;
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate500);
-    d.text("Versorgungsziel", barStartX + barW / 2, y + 4, { align: "center" });
-    d.text("Deckung (real)", barStartX + barW + barGap2 + barW / 2, y + 4, { align: "center" });
-
-    y += 10;
-    iconCircle(d, ML + 20, y + 4, C.slate400, "T", 3);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Heute", ML + 28, y + 5.5);
-
-    pageFooter(d, 5, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 6 — BENÖTIGTES KAPITAL + SPARRATE
-   ════════════════════════════════════════════════════════ */
-function pageRequiredCapital(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 6);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
-
-    // Top card: Required capital
-    card(d, ML, y, CW, 150, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Ben\u00F6tigtes Kapital zur Schlie\u00DFung der L\u00FCcke", ML + 12, y + 16);
-    y += 20;
-    para(d, `Um die bestehende Versorgungsl\u00FCcke zu schlie\u00DFen, ben\u00F6tigen Sie ein bestimmtes Kapital, das wir auf Basis einer angenommenen Rendite von ${inp.returnSavingPct.toFixed(2)}% und einer j\u00E4hrlichen Inflation von ${inp.inflationPct.toFixed(2)}% berechnet haben.`, y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 22;
-
-    // Big capital number
-    d.setFont("helvetica", "bold"); d.setFontSize(26); sc(d, C.emerald);
-    d.text(fmt(res.requiredCapitalFull), PW / 2, y + 8, { align: "center" });
-    d.setFont("helvetica", "normal"); d.setFontSize(8); sc(d, C.slate400);
-    d.text(`Ben\u00F6tigtes Kapital bei einer angenommenen Rendite von ${inp.returnSavingPct.toFixed(2)} %`, PW / 2, y + 18, { align: "center" });
-    y += 26;
-
-    // Growth curve
-    const curveY = y, curveH = 30;
-    sd(d, C.emeraldPale); d.setLineWidth(0.3);
-    for (let i = 0; i < 60; i++) {
-        const x1 = ML + 12 + i * (CW - 24) / 60;
-        const x2 = ML + 12 + (i + 1) * (CW - 24) / 60;
-        const t1 = i / 60, t2 = (i + 1) / 60;
-        const y1v = curveY + curveH - (Math.pow(t1, 1.5) * curveH * 0.8 + Math.sin(t1 * Math.PI * 3) * 3);
-        const y2v = curveY + curveH - (Math.pow(t2, 1.5) * curveH * 0.8 + Math.sin(t2 * Math.PI * 3) * 3);
-        sf(d, C.emeraldPale); opacity(d, 0.3);
-        d.triangle(x1, y1v, x2, y2v, x2, curveY + curveH, "F");
-        opacity(d, 1);
-        sd(d, C.emerald); d.setLineWidth(0.6);
-        d.line(x1, y1v, x2, y2v);
-    }
-    sf(d, C.emerald); d.circle(ML + 12 + (CW - 24) * 0.6, curveY + curveH - 18, 2, "F");
-
-    y = curveY + curveH + 16;
-
-    // Bottom card: Sparrate
-    card(d, ML, y, CW, 90, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Notwendige monatliche Sparrate", ML + 12, y + 16);
-    y += 20;
-    para(d, "Damit Sie Ihre Versorgungsl\u00FCcke schlie\u00DFen k\u00F6nnen, ergibt sich folgendes Sparszenario:", y, { sz: 9, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 12;
-
-    // 3 savings rate pills
-    const pillW = (CW - 36) / 3;
-    const pills = [
-        { label: "Heute", val: fmtShort(res.requiredSavingNow), c: C.emerald, bg: C.green50 },
-        { label: "In 4 Jahren", val: fmtShort(res.requiredIn4), c: C.amber, bg: C.amberLight },
-        { label: "In 8 Jahren", val: fmtShort(res.requiredIn8), c: C.red, bg: C.redLight },
-    ];
-    pills.forEach((p, i) => {
-        const px = ML + 12 + i * (pillW + 6);
-        sf(d, p.bg); d.roundedRect(px, y, pillW, 22, 6, 6, "F");
-        sd(d, p.c); d.setLineWidth(0.3); d.roundedRect(px, y, pillW, 22, 6, 6, "S");
-        d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, p.c);
-        d.text(p.val, px + pillW / 2, y + 10, { align: "center" });
-        d.setFont("helvetica", "normal"); d.setFontSize(6.5); sc(d, p.c);
-        d.text("monatlich", px + pillW / 2, y + 16, { align: "center" });
-        d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate500);
-        d.text(p.label, px + pillW / 2, y + 28, { align: "center" });
-    });
-
-    y += 38;
-    para(d, "Wichtig: Je fr\u00FCher Sie beginnen, desto geringer ist die monatliche Sparrate. Ein sp\u00E4terer Start f\u00FChrt zu einer deutlich h\u00F6heren Belastung.", y, { sz: 8.5, x: ML + 12, w: CW - 24, color: C.red, lh: 4 });
-
-    pageFooter(d, 6, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 7 — IHRE ENTSCHEIDUNG: DIE START-SPARRATE
-   ════════════════════════════════════════════════════════ */
-function pageDecision(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 7);
-    const name = `${data.firstName} ${data.lastName}`;
-    const dv = derivedValues(inp, res);
-    let y = 34;
-
-    card(d, ML, y, CW, 234, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Ihre Entscheidung: Die Start-Sparrate", ML + 12, y + 16);
-    y += 20;
-
-    const coverageTxt = dv.coveragePct >= 100
-        ? `Sie haben sich f\u00FCr eine monatliche Sparrate von ${fmt(inp.desiredSaving)} entschieden. Damit schlie\u00DFen Sie ${fmtPct(Math.min(100, dv.coveragePct))} Ihrer aktuellen Versorgungsl\u00FCcke.`
-        : `Sie haben sich f\u00FCr eine monatliche Sparrate von ${fmt(inp.desiredSaving)} entschieden. Damit schlie\u00DFen Sie ${fmtPct(Math.min(100, dv.coveragePct))} Ihrer aktuellen Versorgungsl\u00FCcke. Mit dieser Sparrate erreichen Sie bereits einen bedeutenden Teil Ihres Versorgungsziels, k\u00F6nnen aber jederzeit flexibel nachsteuern.`;
-    para(d, coverageTxt, y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 26;
-
-    const halfW = (CW - 24) / 2;
-
-    // Left: Savings rate card
-    card(d, ML + 8, y, halfW, 60, { fill: C.white, radius: 6 });
-    iconCircle(d, ML + 22, y + 16, C.emerald, "€", 5.5);
-    d.setFont("helvetica", "bold"); d.setFontSize(24); sc(d, C.navy);
-    d.text(fmt(inp.desiredSaving), ML + 18, y + 38);
-    d.setFont("helvetica", "normal"); d.setFontSize(8); sc(d, C.slate400);
-    d.text("Gew\u00FCnschte monatliche Sparrate", ML + 18, y + 48);
-
-    // Right: Gauge donut
-    card(d, ML + 8 + halfW + 8, y, halfW, 60, { fill: C.white, radius: 6 });
-    const gaugeCx = ML + 8 + halfW + 8 + halfW / 2, gaugeCy = y + 28, gaugeR = 20;
-    drawArc(d, gaugeCx, gaugeCy, gaugeR, 0, 360, C.slate200, 4);
-    const gaugeSweep = Math.min(100, dv.coveragePct) / 100 * 360;
-    if (gaugeSweep > 0) drawArc(d, gaugeCx, gaugeCy, gaugeR, -90, -90 + gaugeSweep, C.emerald, 4.5);
-    d.setFont("helvetica", "normal"); d.setFontSize(6); sc(d, C.slate400);
-    d.text("Zielerreichung", gaugeCx, gaugeCy - 6, { align: "center" });
-    d.setFont("helvetica", "bold"); d.setFontSize(18); sc(d, C.emerald);
-    d.text(`${Math.round(Math.min(100, dv.coveragePct))}%`, gaugeCx, gaugeCy + 6, { align: "center" });
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("erreicht", gaugeCx, gaugeCy + 13, { align: "center" });
-
-    y += 68;
-
-    // 2 bottom cards
-    card(d, ML + 8, y, halfW, 44, { fill: C.white, radius: 6 });
-    iconCircle(d, ML + 22, y + 14, C.emerald, "+", 4.5);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Verf\u00FCgbares Kapital zu Rentenbeginn", ML + 18, y + 24);
-    d.setFont("helvetica", "bold"); d.setFontSize(14); sc(d, C.emerald);
-    d.text(`+${fmtShort(res.capitalNow)}`, ML + 18, y + 36);
-
-    card(d, ML + 8 + halfW + 8, y, halfW, 44, { fill: C.white, radius: 6 });
-    iconCircle(d, ML + 22 + halfW + 8, y + 14, C.emerald, "+", 4.5);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text(`Zus\u00E4tzliche Rente im Jahr ${res.retirementYear}`, ML + 18 + halfW + 8, y + 24);
-    d.setFont("helvetica", "bold"); d.setFontSize(14); sc(d, C.emerald);
-    d.text(`+${fmtShort(res.privatePayout)}`, ML + 18 + halfW + 8, y + 36);
-
-    y += 50;
-    const dv2 = derivedValues(inp, res);
-    iconCircle(d, ML + 16, y + 3, C.slate400, "T", 3);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text(`${dv2.ytr.toFixed(1)} Jahre Laufzeit`, ML + 24, y + 4.5);
-    iconCircle(d, ML + 62, y + 3, C.emerald, "%", 3);
-    d.text(`${inp.returnSavingPct.toFixed(2)} % Rendite`, ML + 70, y + 4.5);
-    iconCircle(d, ML + 108, y + 3, C.red, "~", 3);
-    d.text(`${inp.inflationPct.toFixed(2)} % Inflation`, ML + 116, y + 4.5);
-
-    pageFooter(d, 7, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 8 — ZINSESZINSEFFEKT
-   ════════════════════════════════════════════════════════ */
-function pageCompoundInterest(d: jsPDF, data: PdfRequestData, res: PensionPdfResult) {
-    pageHeader(d, 8);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
-
-    card(d, ML, y, CW, 240, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(12); sc(d, C.navy);
-    const ciHead = d.splitTextToSize("Nutzen des Zinseszinseffekts: Warum ein fr\u00FCher Start entscheidend ist", CW - 24) as string[];
-    ciHead.forEach((line: string, i: number) => d.text(line, ML + 12, y + 16 + i * 6));
-    y += 12 + ciHead.length * 6 + 2;
-
-    para(d, "Dank des fr\u00FChen Starts haben Sie ausreichend Zeit, um Verm\u00F6gen effektiv aufzubauen und den Zinseszinseffekt voll auszunutzen.", y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 14;
-    para(d, "Selbst ein minimal sp\u00E4terer Start in 4 oder 8 Jahren w\u00FCrde den Zinsgewinn deutlich reduzieren und den Aufbau Ihres Altersvorsorgeverm\u00F6gens sp\u00FCrbar beeintr\u00E4chtigen.", y, { sz: 9, lh: 4.5, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 20;
-
-    // 3x2 grid
-    const colW = (CW - 32) / 2;
-    const periods = [
-        { label: "Heute", cap: res.capitalNow, interest: res.interestNow, lossC: 0, lossI: 0 },
-        { label: "In 4 Jahren", cap: res.capitalIn4, interest: res.interestIn4, lossC: res.capitalNow - res.capitalIn4, lossI: res.interestNow - res.interestIn4 },
-        { label: "In 8 Jahren", cap: res.capitalIn8, interest: res.interestIn8, lossC: res.capitalNow - res.capitalIn8, lossI: res.interestNow - res.interestIn8 },
-    ];
-
-    const gridX = ML + 10;
-    card(d, gridX, y, CW - 20, 148, { fill: C.white, radius: 6, noBorder: true });
-    sd(d, C.slate200); d.setLineWidth(0.15);
-    d.line(gridX + colW + 6, y + 4, gridX + colW + 6, y + 144);
-
-    // Headers
-    iconCircle(d, gridX + colW / 2 - 8, y + 12, C.emerald, "+", 4.5);
-    d.setFont("helvetica", "bold"); d.setFontSize(10); sc(d, C.navy);
-    d.text("Kapital", gridX + colW / 2 + 2, y + 14);
-
-    iconCircle(d, gridX + colW + 12 + colW / 2 - 8, y + 12, C.emerald, "%", 4.5);
-    d.text("Zinsgewinn", gridX + colW + 12 + colW / 2 + 2, y + 14);
-
-    y += 24;
-
-    periods.forEach((p, pi) => {
-        const rowY = y + pi * 42;
-
-        // Timeline badge
-        sf(d, C.slate100); d.roundedRect(gridX + colW - 2, rowY + 6, 20, 9, 4, 4, "F");
-        d.setFont("helvetica", "normal"); d.setFontSize(6); sc(d, C.slate500);
-        d.text(p.label, gridX + colW + 8, rowY + 12, { align: "center" });
-
-        // Left: Capital
-        d.setFont("helvetica", "bold"); d.setFontSize(14); sc(d, C.navy);
-        d.text(fmtShort(p.cap), gridX + colW / 2, rowY + 10, { align: "center" });
-        if (pi > 0 && p.lossC > 0) {
-            sf(d, C.redLight); d.roundedRect(gridX + colW / 2 - 14, rowY + 14, 28, 8, 3, 3, "F");
-            d.setFont("helvetica", "bold"); d.setFontSize(6.5); sc(d, C.red);
-            d.text(`-${fmtShort(p.lossC)}`, gridX + colW / 2, rowY + 20, { align: "center" });
-        }
-
-        // Right: Interest
-        d.setFont("helvetica", "bold"); d.setFontSize(14); sc(d, C.navy);
-        d.text(fmtShort(p.interest), gridX + colW + 12 + colW / 2, rowY + 10, { align: "center" });
-        if (pi > 0 && p.lossI > 0) {
-            sf(d, C.redLight); d.roundedRect(gridX + colW + 12 + colW / 2 - 14, rowY + 14, 28, 8, 3, 3, "F");
-            d.setFont("helvetica", "bold"); d.setFontSize(6.5); sc(d, C.red);
-            d.text(`-${fmtShort(p.lossI)}`, gridX + colW + 12 + colW / 2, rowY + 20, { align: "center" });
-        }
-
-        if (pi < 2) {
-            sd(d, C.slate100); d.setLineWidth(0.1);
-            d.line(gridX + 4, rowY + 32, gridX + CW - 24, rowY + 32);
-        }
-    });
-
-    pageFooter(d, 8, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 9 — ZUSAMMENFASSUNG
-   ════════════════════════════════════════════════════════ */
-function pageSummary(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 9);
-    const name = `${data.firstName} ${data.lastName}`;
-    const dv = derivedValues(inp, res);
-    let y = 34;
-
-    card(d, ML, y, CW, 240, { radius: 7 });
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.navy);
-    d.text("Zusammenfassung", ML + 12, y + 16);
-    y += 20;
-    para(d, "Durch den rechtzeitigen Start Ihrer Altersvorsorge sind Sie auf dem besten Weg, Ihre finanzielle Zukunft abzusichern. Jeder Monat z\u00E4hlt — starten Sie jetzt und sichern Sie sich ein ruhiges und finanziell stabiles Leben im Alter.", y, { sz: 9.5, lh: 4.8, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 22;
-
-    const halfW = (CW - 24) / 2;
-
-    // Side-by-side comparison
-    card(d, ML + 8, y, halfW, 72, { fill: C.white, radius: 6 });
-    sd(d, C.slate200); d.setLineWidth(0.15);
-    d.line(ML + 8 + halfW, y + 4, ML + 8 + halfW, y + 68);
-
-    // Left: Bisherige Gesamtrente
-    iconCircle(d, ML + 8 + halfW / 2 - 8, y + 14, C.emerald, "+", 4);
-    d.setFont("helvetica", "bold"); d.setFontSize(9); sc(d, C.navy);
-    d.text("Ihre bisherige Gesamtrente", ML + 8 + halfW / 2 + 2, y + 16);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Im Alter", ML + 18, y + 30);
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.emerald);
-    d.text(fmt(res.pensionNet), ML + 18, y + 40);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Nach heutiger Kaufkraft", ML + 18, y + 52);
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.emerald);
-    d.text(fmt(dv.pensionNetReal), ML + 18, y + 62);
-
-    // Arrow
-    card(d, ML + 8 + halfW + 8, y, halfW, 72, { fill: C.white, radius: 6 });
-    sf(d, C.emerald); d.circle(ML + 8 + halfW + 4, y + 36, 3, "F");
-    sd(d, C.white); d.setLineWidth(0.5);
-    d.line(ML + 8 + halfW + 2, y + 36, ML + 8 + halfW + 5, y + 36);
-    d.line(ML + 8 + halfW + 4, y + 34.5, ML + 8 + halfW + 6, y + 36);
-    d.line(ML + 8 + halfW + 4, y + 37.5, ML + 8 + halfW + 6, y + 36);
-
-    // Right: Neue Gesamtrente
-    const rx = ML + 8 + halfW + 16;
-    iconCircle(d, rx + halfW / 2 - 16, y + 14, C.emerald, "%", 4);
-    d.setFont("helvetica", "bold"); d.setFontSize(9); sc(d, C.navy);
-    d.text("Ihre neue Gesamtrente", rx - 4, y + 16);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Im Alter", rx, y + 30);
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.emerald);
-    d.text(fmt(res.totalPension), rx, y + 40);
-    d.setFont("helvetica", "normal"); d.setFontSize(7); sc(d, C.slate400);
-    d.text("Nach heutiger Kaufkraft", rx, y + 52);
-    d.setFont("helvetica", "bold"); d.setFontSize(13); sc(d, C.emerald);
-    d.text(fmt(dv.totalReal), rx, y + 62);
-
-    y += 80;
-
-    // Summary bar chart (simplified)
-    const chartH = 80, chartBottom = y + chartH;
-    const maxVal = Math.max(res.targetInflated, res.totalPension + res.gap) * 1.05;
-    const barW = 30, barGap2 = 20;
-    const cbx = ML + CW / 2 - (barW * 3 + barGap2 * 2) / 2;
-
-    // Bar: Versorgungsziel
-    const h1 = (inp.targetNetToday / maxVal) * chartH;
-    sf(d, C.slate300); d.roundedRect(cbx, chartBottom - h1, barW, h1, 3, 0, "F");
-
-    // Bar: +Inflation
-    const h2 = (res.targetInflated / maxVal) * chartH;
-    sf(d, C.slate400); d.roundedRect(cbx + barW + barGap2, chartBottom - h2, barW, h2, 3, 0, "F");
-
-    // Bar: Stacked (pension + private + gap)
-    const stackTotal = res.totalPension + res.gap;
-    const h3 = (stackTotal / maxVal) * chartH;
-    const pensionH = stackTotal > 0 ? (res.pensionNet / stackTotal) * h3 : 0;
-    const privateH = stackTotal > 0 ? (res.privatePayout / stackTotal) * h3 : 0;
-    const gapH2 = h3 - pensionH - privateH;
-
-    const sx = cbx + 2 * (barW + barGap2);
-    if (gapH2 > 0) { sf(d, C.red); d.roundedRect(sx, chartBottom - h3, barW, gapH2, 3, 0, "F"); }
-    if (privateH > 0) { sf(d, C.emerald); d.rect(sx, chartBottom - pensionH - privateH, barW, privateH, "F"); }
-    if (pensionH > 0) { sf(d, C.blue); d.rect(sx, chartBottom - pensionH, barW, pensionH, "F"); }
-
-    pageFooter(d, 9, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 10 — BERECHNUNGSGRUNDLAGEN
-   ════════════════════════════════════════════════════════ */
-function pageCalcBasis(d: jsPDF, data: PdfRequestData, inp: PensionPdfInput, res: PensionPdfResult) {
-    pageHeader(d, 10);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
-
-    d.setFont("helvetica", "bold"); d.setFontSize(14); sc(d, C.navy);
-    d.text("Berechnungsgrundlagen Ihrer Altersvorsorge", ML, y);
-    y += 8;
-
-    card(d, ML, y, CW, 225, { radius: 7 });
-    y += 8;
-    d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, C.navy);
-    d.text("Berechnungsgrundlagen Ihrer Altersvorsorge", ML + 12, y + 8);
-    y += 4;
-    para(d, "Hier finden Sie die wesentlichen Faktoren und Annahmen, die den Berechnungen zugrunde liegen — verst\u00E4ndlich aufbereitet, um Ihnen volle Transparenz zu bieten.", y + 8, { sz: 8.5, lh: 4, x: ML + 12, w: CW - 24, color: C.slate400 });
-    y += 24;
-
-    const halfW = (CW - 24) / 2;
-
-    function dataCard(cx: number, cy: number, w: number, h: number, icon: string, iconC: RGB, title: string, rows: [string, string][]) {
-        card(d, cx, cy, w, h, { fill: C.white, radius: 6 });
-        iconCircle(d, cx + 14, cy + 14, iconC, icon, 4.5);
-        d.setFont("helvetica", "bold"); d.setFontSize(9); sc(d, C.navy);
-        d.text(title, cx + 24, cy + 16);
-        rows.forEach((r, i) => {
-            const ry = cy + 28 + i * 10;
-            d.setFont("helvetica", "normal"); d.setFontSize(7.5); sc(d, C.slate400);
-            d.text(r[0], cx + 10, ry);
-            d.setFont("helvetica", "bold"); d.setFontSize(7.5); sc(d, C.navy);
-            d.text(r[1], cx + w - 10, ry, { align: "right" });
-        });
+    const html2canvas = (await import("html2canvas")).default;
+    const jsPDFMod = await import("jspdf");
+    const pdf = new jsPDFMod.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    for (let i = 0; i < pages.length; i++) {
+        const wrapper = document.createElement("div");
+        wrapper.style.cssText = "position:fixed;top:0;left:-9999px;z-index:-1;background:#fff;pointer-events:none";
+        wrapper.innerHTML = pages[i];
+        document.body.appendChild(wrapper);
+        const el = wrapper.firstElementChild as HTMLElement;
+        const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff" });
+        document.body.removeChild(wrapper);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, 210, 297, undefined, "FAST");
     }
 
-    // Card 1: Versicherungsnehmer
-    dataCard(ML + 8, y, halfW, 68, "P", C.blue, "Versicherungsnehmer", [
-        ["Geburtsdatum", fmtDateLong(inp.dob)],
-        ["Berufseintritt", fmtDateLong(inp.jobEntry)],
-        ["Monatliches Bruttoeinkommen", fmtShort(inp.monthlyGross)],
-        ["Kirchensteuerpflichtig", inp.churchTax ? "Ja" : "Nein"],
-    ]);
-
-    // Card 2: Annahme zur Rente
-    dataCard(ML + 8 + halfW + 8, y, halfW, 68, "R", C.emerald, "Annahme zur Rente", [
-        ["Renteneintrittsalter", `${inp.retirementAge} Jahre`],
-        ["Lebenserwartung", `${inp.lifeExpectancy} Jahre`],
-        ["Art der Krankenversicherung", inp.healthType === "legal" ? "Gesetzlich" : "Privat"],
-        [inp.mode === "versorgungswerk" ? "Mit VW" : "Mit KVdR", "Ja"],
-    ]);
-
-    y += 76;
-
-    // Card 3: Bestehende Vorsorge (minimal)
-    dataCard(ML + 8, y, halfW, 44, "S", C.amber, "Bestehende Vorsorge", [
-        [inp.mode === "versorgungswerk" ? "Versorgungswerk" : "Gesetzliche Rente", fmt(res.pensionNet)],
-    ]);
-
-    // Card 4: Versorgungsziel
-    dataCard(ML + 8 + halfW + 8, y, halfW, 44, "Z", C.emerald, "Versorgungsziel", [
-        ["Inflation", fmtPct(inp.inflationPct)],
-        ["Rendite Ansparphase", fmtPct(inp.returnSavingPct)],
-        ["Rendite Entnahmephase", fmtPct(inp.returnTakeoutPct)],
-    ]);
-
-    y += 52;
-
-    // Card 5: Zeiterfassung
-    dataCard(ML + 8, y, CW - 16, 44, "T", C.purple, "Zeiterfassung", [
-        ["Jahre bis Renteneintritt", `${(res.monthsToRet / 12).toFixed(1)} Jahre`],
-        ["Renteneintritt", `${res.retirementYear}`],
-        ["Versorgungsziel (heute)", fmt(inp.targetNetToday)],
-    ]);
-
-    pageFooter(d, 10, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 11 — WARUM PROFESSIONELLE BERATUNG?
-   ════════════════════════════════════════════════════════ */
-function pageWhyAdvice(d: jsPDF, data: PdfRequestData) {
-    pageHeader(d, 11);
-    const name = `${data.firstName} ${data.lastName}`;
-    let y = 34;
-
-    d.setFont("helvetica", "bold"); d.setFontSize(15); sc(d, C.navy);
-    d.text("Der Weg zu Ihrer sicheren Zukunft", ML, y);
-    y += 8;
-    y = para(d, "Diese Analyse zeigt Ihnen den Status quo — doch der wahre Mehrwert entsteht erst durch eine individuelle Beratung. Hier sind drei Gr\u00FCnde, warum ein pers\u00F6nliches Gespr\u00E4ch den Unterschied macht:", y, { sz: 10.5, lh: 5.2, x: ML, w: CW });
-    y += 8;
-
-    const benefits = [
-        {
-            icon: "S", color: C.blue, title: "Individuelle Strategie",
-            desc: "Ihre Situation ist einzigartig. Ein erfahrener Berater analysiert Ihre Versorgungswerks-Anspr\u00FCche, steuerliche Situation und Lebensplanung, um eine ma\u00DFgeschneiderte Strategie zu entwickeln, die optimal zu Ihnen passt.",
-        },
-        {
-            icon: "€", color: C.emerald, title: "Steuervorteile nutzen",
-            desc: "Als Mediziner haben Sie besondere M\u00F6glichkeiten: von der Basisrente \u00FCber das Versorgungswerk bis hin zu intelligenten Anlagestrategien. Wir zeigen Ihnen, wie Sie jeden steuerlichen Vorteil maximieren.",
-        },
-        {
-            icon: "+", color: C.amber, title: "Langfristige Begleitung",
-            desc: "Finanzplanung ist kein einmaliges Ereignis. Wir begleiten Sie \u00FCber die Jahre, passen Ihre Strategie an ver\u00E4nderte Lebensumst\u00E4nde an und stellen sicher, dass Sie immer auf dem richtigen Kurs sind.",
-        },
-        {
-            icon: "V", color: C.purple, title: "Unabh\u00E4ngige Expertise",
-            desc: "Wir arbeiten produktunabh\u00E4ngig und ausschlie\u00DFlich in Ihrem Interesse. Unsere Empfehlungen basieren auf Ihrer individuellen Situation — nicht auf Provisionsinteressen.",
-        },
-    ];
-
-    benefits.forEach(b => {
-        card(d, ML, y, CW, 44, { radius: 7 });
-        iconCircle(d, ML + 16, y + 14, b.color, b.icon, 5.5);
-        d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, C.navy);
-        d.text(b.title, ML + 28, y + 16);
-        para(d, b.desc, y + 24, { sz: 8.5, lh: 4, x: ML + 28, w: CW - 36, color: C.slate400 });
-        y += 50;
-    });
-
-    y += 2;
-    // CTA
-    sf(d, C.emerald); d.roundedRect(ML, y, CW, 16, 6, 6, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, C.white);
-    d.text("Vereinbaren Sie jetzt Ihr pers\u00F6nliches Beratungsgespr\u00E4ch", PW / 2, y + 10.5, { align: "center" });
-
-    pageFooter(d, 11, name);
-}
-
-/* ════════════════════════════════════════════════════════
-   PAGE 12 — CLOSING
-   ════════════════════════════════════════════════════════ */
-function pageClosing(d: jsPDF, data: PdfRequestData) {
-    pageHeader(d, 12);
-    const name = `${data.firstName} ${data.lastName}`;
-    const cx = PW / 2;
-
-    drawLogo(d, cx, 44, 10);
-
-    let y = 72;
-    d.setFont("helvetica", "bold"); d.setFontSize(18); sc(d, C.navy);
-    d.text(`Sehr geehrte/r Herr ${data.lastName},`, ML, y);
-    y += 20;
-
-    y = para(d, `ich hoffe, dieses Gutachten hat Ihnen eine hilfreiche \u00DCbersicht und mehr Klarheit \u00FCber Ihre aktuelle Finanzsituation sowie die n\u00E4chsten Schritte f\u00FCr Ihre finanzielle Zukunft verschafft. Der entscheidende Punkt ist jetzt die konsequente Umsetzung der Empfehlungen. Nur so werden Sie langfristig von den geplanten Ma\u00DFnahmen profitieren und sich die Sicherheit aufbauen, die Sie sich w\u00FCnschen.`, y, { sz: 12, lh: 6.5, x: ML, w: CW });
-    y += 10;
-
-    y = para(d, `Ich freue mich darauf, Sie weiterhin zu begleiten und Sie bei jedem Schritt zu unterst\u00FCtzen. Gemeinsam stellen wir sicher, dass Sie Ihre Ziele erreichen und Ihre finanzielle Situation stetig im Blick behalten. Vielen Dank f\u00FCr Ihr Vertrauen — auf eine erfolgreiche und sichere Zukunft!`, y, { sz: 12, lh: 6.5, x: ML, w: CW });
-    y += 22;
-
-    d.setFont("helvetica", "normal"); d.setFontSize(12); sc(d, C.slate500);
-    d.text("Mit besten Gr\u00FC\u00DFen,", ML, y);
-
-    y += 28;
-
-    // Quote card
-    const qh = 52;
-    card(d, ML, y, CW, qh, { fill: C.slate50, noBorder: true, noShadow: true, radius: 10 });
-    sd(d, C.slate200); d.setLineWidth(0.2); d.roundedRect(ML, y, CW, qh, 10, 10, "S");
-
-    sf(d, C.emerald);
-    d.roundedRect(cx - 8, y + 6, 5.5, 4.5, 2, 2, "F");
-    d.roundedRect(cx - 8, y + 11.5, 3, 2.5, 1, 1, "F");
-    d.roundedRect(cx + 1.5, y + 6, 5.5, 4.5, 2, 2, "F");
-    d.roundedRect(cx + 1.5, y + 11.5, 3, 2.5, 1, 1, "F");
-
-    d.setFont("helvetica", "bold"); d.setFontSize(11); sc(d, C.navy);
-    const qt = d.splitTextToSize("\"Der beste Zeitpunkt, um zu investieren, war vor 20 Jahren. Der zweitbeste Zeitpunkt ist jetzt.\"", CW - 50) as string[];
-    d.text(qt, cx, y + 26, { align: "center" });
-
-    sf(d, C.emerald); d.circle(cx - 34, y + qh - 8, 4, "F");
-    d.setFont("helvetica", "bold"); d.setFontSize(7); sc(d, C.white);
-    d.text("WB", cx - 36, y + qh - 6.5);
-    d.setFont("helvetica", "normal"); d.setFontSize(8.5); sc(d, C.slate400);
-    d.text("Warren Buffett, US-amerikanischer Investor", cx - 27, y + qh - 6.5);
-
-    pageFooter(d, 12, name);
-}
-
-/* ═══════════════ MAIN EXPORT ═══════════════ */
-export function generatePensionPdf(data: PdfRequestData, result: PensionPdfResult, input: PensionPdfInput) {
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    totalPages = 12;
-
-    pageCover(doc, data, result);
-    doc.addPage(); pageIntro(doc, data);
-    doc.addPage(); pageWhyImportant(doc, data);
-    doc.addPage(); pageSituationNominal(doc, data, input, result);
-    doc.addPage(); pageSituationReal(doc, data, input, result);
-    doc.addPage(); pageRequiredCapital(doc, data, input, result);
-    doc.addPage(); pageDecision(doc, data, input, result);
-    doc.addPage(); pageCompoundInterest(doc, data, result);
-    doc.addPage(); pageSummary(doc, data, input, result);
-    doc.addPage(); pageCalcBasis(doc, data, input, result);
-    doc.addPage(); pageWhyAdvice(doc, data);
-    doc.addPage(); pageClosing(doc, data);
-
-    doc.save(`Altersvorsorge_${data.lastName}_${fmtDate(new Date()).replace(/\./g, "-")}.pdf`);
+    const fileName = `Altersvorsorge-${requestData.lastName}-${fmtTs(new Date())}.pdf`;
+    pdf.save(fileName);
+    return { blob: pdf.output("blob") as Blob, fileName };
 }

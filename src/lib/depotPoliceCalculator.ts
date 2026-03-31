@@ -84,7 +84,8 @@ export function simulateDepotVsPolice(input: DepotPoliceInput): DepotPoliceResul
   const policyAcqYears = clamp(Math.round(input.policyCosts.acquisitionPeriodYears), 1, 40);
 
   // GAMMA: Asset Based Fee (Kapitalkosten)
-  const policyGammaRateMonthly = clamp(input.policyCosts.assetBasedAdminPct / 100 / 12, 0, 0.05);
+  // We add an assumed internal ETF TER of 0.2% p.a. to make comparisons realistic
+  const policyGammaRateMonthly = clamp((input.policyCosts.assetBasedAdminPct + 0.2) / 100 / 12, 0, 0.05);
 
   // BETA: Premium Based Fee (Verwaltungskosten auf Beitrag)
   // We re-interpret "adminCostFirstYearPct" and "adminCostLastYearPct" as Beta rates on the premium
@@ -124,10 +125,13 @@ export function simulateDepotVsPolice(input: DepotPoliceInput): DepotPoliceResul
       Math.max(0, input.monthlyContribution) * 12 * Math.pow(1 + dynamicRate, year - 1);
 
     // Beta Rate Interpolation (Falling/Constant)
+    const betaFallOffYears = Math.min(10, yearsToRetirement);
     const currentBetaRate =
       input.policyCosts.adminCostType === "constant"
         ? policyBetaLastRate
-        : lerp(policyBetaFirstRate, policyBetaLastRate, (year - 1) / Math.max(1, yearsToRetirement - 1));
+        : year > betaFallOffYears
+          ? policyBetaLastRate
+          : lerp(policyBetaFirstRate, policyBetaLastRate, (year - 1) / Math.max(1, betaFallOffYears - 1));
 
     const monthlyContributionCurrent = annualContribution / 12;
     const depotAtYearStart = depot;
@@ -192,6 +196,9 @@ export function simulateDepotVsPolice(input: DepotPoliceInput): DepotPoliceResul
     const taxableVorab = Math.max(0, (vorabPauschale * (1 - partialExemption)) - input.allowanceEUR);
     const annualTax = taxableVorab * taxRate;
     depot = Math.max(0, depot - annualTax);
+
+    // Increase cost basis by the assessed Vorabpauschale to prevent double taxation on fund switch
+    depotCostBasis += vorabPauschale;
 
     points.push({ year, payment: accumulatedPayment, depot, policy });
 

@@ -29,6 +29,7 @@ import type { PieSectorDataItem } from "recharts/types/polar/Pie";
 import { ArrowUpRight, TrendingUp, CreditCard, FileText } from "lucide-react";
 import { PdfRequestModal, PdfRequestData } from "@/components/ui/PdfRequestModal";
 import { generateCashflowPdf, type CashflowPdfInput, type CashflowPdfResult } from "@/lib/cashflowPdfGenerator";
+import { captureLead } from "@/lib/leadCapture";
 
 const formatCurrency = (n: number | undefined) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n ?? 0);
@@ -58,10 +59,9 @@ const shortenLabel = (label: string, isMobile: boolean): string => {
     "Essen, Trinken, Haushaltsbedarf": "Haushalt",
     "Autoleasing / Finanzierung": "Autoleasing",
     "Sonderzahlung (13. Gehalt)": "13. Gehalt",
-    "Berufsunfähigkeitsversicherung": "BU-Versicherung",
+    "Berufsunfähigkeitsversicherung": "Berufsunfähigkeit",
     "Private Krankenversicherung": "PKV",
     "Wohngebäudeversicherung": "Wohngebäude",
-    "Zahnzusatzversicherung": "Zahnzusatz",
     "Risikolebensversicherung": "Risikoleben",
   };
 
@@ -513,6 +513,7 @@ export function CashflowPage() {
   const [activeTab, setActiveTab] = useState("eingaben");
   const [activeIncomeIndex, setActiveIncomeIndex] = useState(-1);
   const [activeAssetIndex, setActiveAssetIndex] = useState(-1);
+  const [chartTooltipActive, setChartTooltipActive] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
 
@@ -526,71 +527,68 @@ export function CashflowPage() {
 
   // Income - Monatlich (with isSystem flag)
   const [monthlyIncomeRows, setMonthlyIncomeRows] = useState<SystemIncomeRow[]>([
-    { name: "Gehalt", net: 5500, isSystem: true },
+    { name: "Gehalt", net: 0, isSystem: true },
     { name: "Nebenjob", net: 0, isSystem: true },
     { name: "Vermietung (kalt)", net: 0, isSystem: true },
   ]);
 
   // Income - Jährlich
   const [annualIncomeRows, setAnnualIncomeRows] = useState<SystemIncomeRow[]>([
-    { name: "Sonderzahlung (13. Gehalt)", net: 5500, isSystem: true },
+    { name: "Sonderzahlung (13. Gehalt)", net: 0, isSystem: true },
     { name: "Urlaubsgeld", net: 0, isSystem: true },
     { name: "Weihnachtsgeld", net: 0, isSystem: true },
   ]);
 
   // Expenses - Notwendig
   const [expensesNecessary, setExpensesNecessary] = useState<SystemExpenseRow[]>([
-    { name: "Miete kalt", amount: 1200, isSystem: true },
-    { name: "Miete Nebenkosten", amount: 200, isSystem: true },
-    { name: "Essen, Trinken, Haushaltsbedarf", amount: 400, isSystem: true },
-    { name: "Internet", amount: 45, isSystem: true },
-    { name: "Strom", amount: 80, isSystem: true },
-    { name: "Handy", amount: 40, isSystem: true },
-    { name: "Sonstiges", amount: 100, isSystem: true },
+    { name: "Miete kalt", amount: 0, isSystem: true },
+    { name: "Miete Nebenkosten", amount: 0, isSystem: true },
+    { name: "Essen, Trinken, Haushaltsbedarf", amount: 0, isSystem: true },
+    { name: "Internet", amount: 0, isSystem: true },
+    { name: "Strom", amount: 0, isSystem: true },
+    { name: "Handy", amount: 0, isSystem: true },
+    { name: "Sonstiges", amount: 0, isSystem: true },
   ]);
 
   // Expenses - Nicht notwendig
   const [expensesOptional, setExpensesOptional] = useState<SystemExpenseRow[]>([
-    { name: "Fitnessstudio, Vereinsmitgliedschaften", amount: 50, isSystem: true },
-    { name: "Weggehen, Restaurant, Party", amount: 200, isSystem: true },
-    { name: "Spotify, Netflix, Amazon Prime", amount: 35, isSystem: true },
+    { name: "Fitnessstudio, Vereinsmitgliedschaften", amount: 0, isSystem: true },
+    { name: "Weggehen, Restaurant, Party", amount: 0, isSystem: true },
+    { name: "Spotify, Netflix, Amazon Prime", amount: 0, isSystem: true },
     { name: "Darlehen", amount: 0, isSystem: true },
-    { name: "GEZ", amount: 18, isSystem: true },
-    { name: "Autoleasing / Finanzierung", amount: 350, isSystem: true },
-    { name: "Auto (Kraftstoff, Parken, Reparatur)", amount: 250, isSystem: true },
+    { name: "GEZ", amount: 0, isSystem: true },
+    { name: "Autoleasing / Finanzierung", amount: 0, isSystem: true },
+    { name: "Auto (Kraftstoff, Parken, Reparatur)", amount: 0, isSystem: true },
     { name: "Gewerkschaft", amount: 0, isSystem: true },
-    { name: "Shopping", amount: 150, isSystem: true },
+    { name: "Shopping", amount: 0, isSystem: true },
   ]);
 
   // Insurance / Absicherungen
   const [insuranceRows, setInsuranceRows] = useState<SystemExpenseRow[]>([
-    { name: "Haftpflichtversicherung", amount: 8, isSystem: true },
-    { name: "Kfz-Versicherung", amount: 65, isSystem: true },
-    { name: "Hausrat", amount: 15, isSystem: true },
-    { name: "Unfallversicherung", amount: 25, isSystem: true },
-    { name: "Risikolebensversicherung", amount: 35, isSystem: true },
-    { name: "Berufsunfähigkeitsversicherung", amount: 150, isSystem: true },
+    { name: "Haftpflichtversicherung", amount: 0, isSystem: true },
+    { name: "Kfz-Versicherung", amount: 0, isSystem: true },
+    { name: "Hausrat", amount: 0, isSystem: true },
+    { name: "Unfallversicherung", amount: 0, isSystem: true },
+    { name: "Risikolebensversicherung", amount: 0, isSystem: true },
+    { name: "Berufsunfähigkeitsversicherung", amount: 0, isSystem: true },
     { name: "Pflegeversicherung", amount: 0, isSystem: true },
-    { name: "Krankenhausleistungen", amount: 20, isSystem: true },
     { name: "Anwartschaft", amount: 0, isSystem: true },
-    { name: "Rechtsschutz", amount: 25, isSystem: true },
-    { name: "Zahnzusatzversicherung", amount: 30, isSystem: true },
+    { name: "Rechtsschutz", amount: 0, isSystem: true },
     { name: "Wohngebäudeversicherung", amount: 0, isSystem: true },
-    { name: "Auslandsreise", amount: 10, isSystem: true },
-    { name: "Private Krankenversicherung", amount: 450, isSystem: true },
+    { name: "Private Krankenversicherung", amount: 0, isSystem: true },
   ]);
 
   // Assets - Kurzfristig
   const [assetsShort, setAssetsShort] = useState<SystemAssetRow[]>([
-    { name: "Sparbuch", monthly: 0, value: 2000, isSystem: true },
-    { name: "Girokonto", monthly: 0, value: 3500, isSystem: true },
-    { name: "Tagesgeldkonto", monthly: 200, value: 15000, isSystem: true },
+    { name: "Sparbuch", monthly: 0, value: 0, isSystem: true },
+    { name: "Girokonto", monthly: 0, value: 0, isSystem: true },
+    { name: "Tagesgeldkonto", monthly: 0, value: 0, isSystem: true },
   ]);
 
   // Assets - Mittelfristig
   const [assetsMid, setAssetsMid] = useState<SystemAssetRow[]>([
-    { name: "Geldanlage", monthly: 0, value: 5000, isSystem: true },
-    { name: "Bausparvertrag", monthly: 100, value: 8000, isSystem: true },
+    { name: "ETFs / Fonds", monthly: 0, value: 0, isSystem: true },
+    { name: "Bausparvertrag", monthly: 0, value: 0, isSystem: true },
     { name: "Immobilie", monthly: 0, value: 0, isSystem: true },
   ]);
 
@@ -598,13 +596,13 @@ export function CashflowPage() {
   const [assetsLong, setAssetsLong] = useState<SystemAssetRow[]>([
     { name: "Rürup", monthly: 0, value: 0, isSystem: true },
     { name: "Riester", monthly: 0, value: 0, isSystem: true },
-    { name: "bAV", monthly: 200, value: 12000, isSystem: true },
-    { name: "Private Altersvorsorge", monthly: 300, value: 25000, isSystem: true },
+    { name: "bAV", monthly: 0, value: 0, isSystem: true },
+    { name: "Private Altersvorsorge", monthly: 0, value: 0, isSystem: true },
   ]);
 
   // Surplus simulation
   const [liquidityGoalAuto, setLiquidityGoalAuto] = useState(true);
-  const [liquidityGoal, setLiquidityGoal] = useState(15000);
+  const [liquidityGoal, setLiquidityGoal] = useState(0);
   const [surplusStartCapital, setSurplusStartCapital] = useState(0);
   const [surplusMonthly, setSurplusMonthly] = useState(0);
   const [surplusYears, setSurplusYears] = useState(20);
@@ -667,7 +665,7 @@ export function CashflowPage() {
   );
 
   const [showPdfModal, setShowPdfModal] = useState(false);
-  const handlePdfGenerate = (reqData: PdfRequestData) => {
+  const handlePdfGenerate = async (reqData: PdfRequestData) => {
     if (!result) return;
     const pdfInput: CashflowPdfInput = {
       monthlyIncomeRows, annualIncomeRows,
@@ -678,7 +676,8 @@ export function CashflowPage() {
       surplusStartCapital, surplusMonthly, surplusYears,
       surplusReturnRate, surplusInflationRate, surplusInterestRate,
     };
-    generateCashflowPdf(reqData, result as CashflowPdfResult, pdfInput);
+    const { blob, fileName } = await generateCashflowPdf(reqData, result as CashflowPdfResult, pdfInput);
+    captureLead(reqData, blob, fileName, "cashflow");
   };
 
   // Auto-Vorbelegung: Startkapital = kurzfristiges Vermögen minus Liquiditätsziel
@@ -798,7 +797,7 @@ export function CashflowPage() {
                   ]}
                 />
 
-                <GroupHeader title="Monatlich" />
+                <GroupHeader title="Monatlich (netto)" />
                 <div className="space-y-1">
                   {monthlyIncomeRows.map((row, idx) => (
                     <IncomeRowItem
@@ -815,7 +814,7 @@ export function CashflowPage() {
                   label="Einnahme hinzufügen"
                 />
 
-                <GroupHeader title="Jährlich" />
+                <GroupHeader title="Jährlich (netto)" />
                 <div className="space-y-1">
                   {annualIncomeRows.map((row, idx) => (
                     <IncomeRowItem
@@ -849,7 +848,7 @@ export function CashflowPage() {
                   ]}
                 />
 
-                <GroupHeader title="Notwendige Ausgaben" />
+                <GroupHeader title="Fixkosten" />
                 <div className="space-y-1">
                   {expensesNecessary.map((row, idx) => (
                     <ExpenseRowItem
@@ -900,7 +899,7 @@ export function CashflowPage() {
                   ]}
                 />
 
-                <GroupHeader title="Kurzfristig (< 1 Jahr)" />
+                <GroupHeader title="Kurzfristig" />
                 <div className="space-y-1">
                   {assetsShort.map((row, idx) => (
                     <AssetRowItem
@@ -917,7 +916,7 @@ export function CashflowPage() {
                   label="Vermögenswert hinzufügen"
                 />
 
-                <GroupHeader title="Mittelfristig (1-5 Jahre)" />
+                <GroupHeader title="Mittelfristig" />
                 <div className="space-y-1">
                   {assetsMid.map((row, idx) => (
                     <AssetRowItem
@@ -934,7 +933,7 @@ export function CashflowPage() {
                   label="Vermögenswert hinzufügen"
                 />
 
-                <GroupHeader title="Langfristig (> 5 Jahre)" />
+                <GroupHeader title="Langfristig" />
                 <div className="space-y-1">
                   {assetsLong.map((row, idx) => (
                     <AssetRowItem
@@ -1008,7 +1007,7 @@ export function CashflowPage() {
                 <button
                   onClick={() => {
                     setActiveTab("auswertung");
-                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    window.scrollTo({ top: 0, behavior: "instant" });
                   }}
                   className="w-full py-4 px-6 bg-gradient-to-r from-[#059669] to-[#10b981] hover:from-[#047857] hover:to-[#059669] text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-3 text-lg"
                 >
@@ -1087,9 +1086,10 @@ export function CashflowPage() {
               liqStatusLabel = 'Anpassen';
             }
             
-            // Für die Darstellung des Liquiditäts-Balkens (damit der Balken über den Ziel-Strich hinausgehen kann)
-            const liqVisualMaxPct = Math.max(125, liqPct);
-            const liqVisualTargetPos = (100 / liqVisualMaxPct) * 100;
+            // Für die Darstellung des Liquiditäts-Balkens (damit der 3xNetto-Zielstrich bei 50% der Breite liegt)
+            // Wir definieren das visuelle Maximum als 2x das Ziel (200%), minimal aber den Ist-Wert, falls er > 200% ist.
+            const liqVisualMaxPct = Math.max(200, liqPct);
+            const liqVisualTargetPos = (100 / liqVisualMaxPct) * 100; // Ist exakt 50%, solange liqPct <= 200
             const liqVisualIstPos = (liqPct / liqVisualMaxPct) * 100;
 
             // Auto-Vorbelegung erfolgt via useEffect (Startkapital + Sparrate)
@@ -1152,9 +1152,10 @@ export function CashflowPage() {
                     <div className="h-48" style={{ animation: 'pieChartFadeIn 0.7s ease-out' }}>
                       {incomeDistribution.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
+                          <PieChart style={{ outline: 'none' }}>
                             {/* @ts-ignore - activeIndex works at runtime in recharts v3 */}
                             <Pie
+                              style={{ outline: 'none' }}
                               data={incomeDistribution}
                               cx="50%"
                               cy="50%"
@@ -1231,9 +1232,10 @@ export function CashflowPage() {
                     <div className="h-48" style={{ animation: 'pieChartFadeIn 0.7s ease-out' }}>
                       {assetDistribution.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
+                          <PieChart style={{ outline: 'none' }}>
                             {/* @ts-ignore - activeIndex works at runtime in recharts v3 */}
                             <Pie
+                              style={{ outline: 'none' }}
                               data={assetDistribution}
                               cx="50%"
                               cy="50%"
@@ -1313,7 +1315,7 @@ export function CashflowPage() {
                       <h3 className="text-base font-semibold text-gray-900">Empfohlene Einkommensverteilung</h3>
                       <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">90% gewichtet</span>
                     </div>
-                    <p className="text-xs text-gray-500 mb-4">Wie nah sind Sie am Zielwert?</p>
+                    <p className="text-xs text-gray-500 mb-4">Wie nah bist du am Zielwert?</p>
                     <div className="space-y-2">
                       {(() => {
                         let goodCount = 0;
@@ -1558,17 +1560,6 @@ export function CashflowPage() {
                         <span className="text-sm font-bold text-red-700">-{formatCurrency(inflationLoss)}</span>
                       </div>
 
-                      <div className="mt-4">
-                        <Button
-                          variant="primary"
-                          className="w-full justify-center py-3"
-                          onClick={() => setShowPdfModal(true)}
-                        >
-                          <FileText className="w-4 h-4 mr-2" />
-                          PDF erstellen
-                        </Button>
-                      </div>
-
                       <PdfRequestModal
                         isOpen={showPdfModal}
                         onClose={() => setShowPdfModal(false)}
@@ -1603,7 +1594,7 @@ export function CashflowPage() {
                     <div className="lg:col-span-2 space-y-5">
                       <div className="p-4 bg-blue-50 rounded-xl mb-4">
                         <p className="text-xs text-blue-700 font-medium mb-1">💡 Automatische Vorbelegung</p>
-                        <p className="text-xs text-blue-600">Startkapital und Sparrate basieren auf Ihrem Kapitalüberschuss und freiem Cashflow.</p>
+                        <p className="text-xs text-blue-600">Startkapital und Sparrate basieren auf deinem Kapitalüberschuss und freiem Cashflow.</p>
                       </div>
                       <Input
                         label="Startkapital"
@@ -1658,11 +1649,11 @@ export function CashflowPage() {
 
                     {/* Chart - größere Spalte auf Desktop */}
                     <div className="lg:col-span-3">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-4">Wachstumsprognose</h4>
-                      <div className="h-72 md:h-96 lg:h-[450px]">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-4 mt-4">Wachstumsprognose</h4>
+                      <div className="h-80 md:h-96 lg:h-[450px] -mx-4 sm:mx-0" onTouchStart={(e) => { if (!(e.target as HTMLElement).closest('.recharts-surface')) setChartTooltipActive(false); }}>
                         {growthChartData.length > 0 ? (
                           <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={growthChartData}>
+                            <LineChart data={growthChartData} onMouseLeave={() => setChartTooltipActive(false)} onMouseMove={() => setChartTooltipActive(true)}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                               <XAxis dataKey="year" tick={{ fontSize: 12 }} />
                               <YAxis
@@ -1670,6 +1661,7 @@ export function CashflowPage() {
                                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                               />
                               <Tooltip
+                                active={chartTooltipActive ? undefined : false}
                                 formatter={(value, name) => {
                                   const labels: Record<string, string> = {
                                     realSavings: `${(-surplusInflationRate).toFixed(2)}% Kaufkraftverlust`,
@@ -1748,12 +1740,46 @@ export function CashflowPage() {
                   </div>
                 </Card>
 
+                <div className="pt-6">
+                  <Button
+                    variant="primary"
+                    className="w-full justify-center py-4 text-lg font-bold shadow-lg bg-[#059669] hover:bg-[#047857]"
+                    onClick={() => setShowPdfModal(true)}
+                  >
+                    <FileText className="w-5 h-5 mr-2" />
+                    Deine Cashflow-Auswertung erhalten
+                  </Button>
+                </div>
+
               </div>
             );
           })()}
         </Tabs >
       </div >
-    </Layout >
+
+      {/* ============ VIDEO & CTA SECTION (nur bei Auswertung) ============ */}
+      {activeTab === "auswertung" && <section className="py-16 mt-12 mb-12 bg-white rounded-3xl border border-gray-100 shadow-sm mx-4 sm:mx-8 xl:mx-auto max-w-7xl">
+         <div className="max-w-xl mx-auto px-4 sm:px-6 text-center">
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#0f172a] mb-8">Erfahre mehr im Video</h2>
+            
+            <div className="w-full max-w-[320px] mx-auto aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl border-4 border-gray-100">
+              <video
+                className="w-full h-full object-cover"
+                controls
+                playsInline
+                preload="metadata"
+                src="/video-cashflow.mp4#t=0.001"
+              />
+            </div>
+
+            <div className="mt-12">
+               <a href="https://outlook.office.com/bookwithme/user/359c7d5667e74b6b97800e6f681c3a29%40horbach.de/meetingtype/GUOy31G5NEWyOmoXzR4T8g2?anonymous&ismsaljsauthenabled=true" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-lg font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-1 transition-all duration-300 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700">
+                  Jetzt Beratung anfragen
+               </a>
+            </div>
+         </div>
+      </section>}
+    </Layout>
   );
 }
 

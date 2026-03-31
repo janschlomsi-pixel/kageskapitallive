@@ -3,7 +3,8 @@ import { HomePage } from "@/pages/HomePage";
 import { CashflowPage } from "@/pages/CashflowPage";
 import { PensionPage } from "@/pages/PensionPage";
 import { DepotPolicePage } from "@/pages/DepotPolicePage";
-import { RuerupPage } from "@/pages/RuerupPage";
+import { DatenschutzPage } from "@/pages/DatenschutzPage";
+import { ImpressumPage } from "@/pages/ImpressumPage";
 
 export function App() {
   return (
@@ -13,7 +14,8 @@ export function App() {
         <Route path="/cashflow-analyse" element={<CashflowPage />} />
         <Route path="/rentenrechner" element={<PensionPage />} />
         <Route path="/depot-versus-police" element={<DepotPolicePage />} />
-        <Route path="/ruerup-steuervorteil" element={<RuerupPage />} />
+        <Route path="/datenschutz" element={<DatenschutzPage />} />
+        <Route path="/impressum" element={<ImpressumPage />} />
       </Routes>
     </BrowserRouter>
   );

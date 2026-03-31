@@ -4,15 +4,20 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "dev:local": "vite --host localhost",
+    "dev:network": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview",
-    "preview:local": "vite preview --host localhost"
+    "preview": "vite preview --host",
+    "preview:local": "vite preview --host localhost",
+    "preview:network": "vite preview --host 0.0.0.0",
+    "pdf:prune-previews": "node scripts/prune-pdf-previews.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",
     "date-fns": "^4.1.0",
+    "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.14.0",
     "jspdf": "^4.1.0",
     "lucide-react": "^0.564.0",
     "react": "19.2.3",

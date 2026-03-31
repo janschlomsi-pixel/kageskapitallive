@@ -14,10 +14,9 @@ const navLinks = [
   { path: "/cashflow-analyse", label: "Cashflow-Analyse" },
   { path: "/rentenrechner", label: "Rentenlückenrechner" },
   { path: "/depot-versus-police", label: "Depot VS Police" },
-  { path: "/ruerup-steuervorteil", label: "Rürup Steuervorteil" },
 ];
 
-export function Layout({ children, title = "Finanzberatung Mediziner", subtitle, transparentHeader = false }: LayoutProps) {
+export function Layout({ children, title = "Karges Kapital", subtitle, transparentHeader = false }: LayoutProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
@@ -30,6 +29,10 @@ export function Layout({ children, title = "Finanzberatung Mediziner", subtitle,
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   const headerBg = transparentHeader
     ? scrolled ? "glass border-b border-white/10 shadow-lg" : "bg-transparent"
     : "bg-white border-b border-gray-100 shadow-sm";
@@ -37,7 +40,7 @@ export function Layout({ children, title = "Finanzberatung Mediziner", subtitle,
   const textColor = transparentHeader && !scrolled ? "text-white" : "text-gray-900";
   const subtitleColor = transparentHeader && !scrolled ? "text-white/70" : "text-gray-500";
   const linkColor = transparentHeader && !scrolled ? "text-white/90 hover:text-white hover:bg-white/10" : "text-gray-600 hover:bg-gray-50";
-  const activeLinkColor = transparentHeader && !scrolled ? "bg-white/20 text-white" : "bg-[#059669]/10 text-[#059669]";
+  const activeLinkColor = transparentHeader && !scrolled ? "bg-white/20 text-white" : "bg-[#d4af37]/10 text-[#d4af37]";
 
   return (
     <div className="min-h-screen bg-[#fafbfc] flex flex-col">
@@ -50,11 +53,7 @@ export function Layout({ children, title = "Finanzberatung Mediziner", subtitle,
           <div className="flex items-center justify-between h-18 py-4">
             {/* Logo & Title */}
             <Link to="/" className="flex items-center gap-3 group">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#059669] via-[#10b981] to-[#047857] flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:shadow-emerald-500/40 transition-all duration-300 group-hover:scale-105">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
+              <img src="/images/karges-kapital-logo.png" alt="Karges Kapital Logo" className="w-11 h-11 rounded-2xl object-cover shadow-lg transition-all duration-300 group-hover:scale-105" />
               <div>
                 <h1 className={cn("text-lg font-bold leading-tight transition-colors", textColor)}>{title}</h1>
                 {subtitle && <p className={cn("text-xs transition-colors", subtitleColor)}>{subtitle}</p>}
@@ -113,7 +112,7 @@ export function Layout({ children, title = "Finanzberatung Mediziner", subtitle,
                   className={cn(
                     "block px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300",
                     location.pathname === link.path
-                      ? "bg-[#059669]/10 text-[#059669]"
+                      ? "bg-[#d4af37]/10 text-[#d4af37]"
                       : "text-gray-600 hover:bg-gray-50"
                   )}
                 >
@@ -139,25 +138,21 @@ export function Layout({ children, title = "Finanzberatung Mediziner", subtitle,
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             {/* Logo & Copyright */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#059669] to-[#047857] flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
+              <img src="/images/karges-kapital-logo.png" alt="Karges Kapital Logo" className="w-10 h-10 rounded-xl object-cover shadow-lg" />
               <div>
-                <p className="text-sm font-medium text-gray-900">Finanzberatung Mediziner</p>
+                <p className="text-sm font-medium text-gray-900">Karges Kapital</p>
                 <p className="text-xs text-gray-500">© {new Date().getFullYear()} Alle Rechte vorbehalten</p>
               </div>
             </div>
 
             {/* Links */}
             <div className="flex items-center gap-8">
-              <a href="#" className="text-sm text-gray-500 hover:text-[#059669] transition-colors duration-300">
+              <Link to="/impressum" className="text-sm text-gray-500 hover:text-[#d4af37] transition-colors duration-300">
                 Impressum
-              </a>
-              <a href="#" className="text-sm text-gray-500 hover:text-[#059669] transition-colors duration-300">
+              </Link>
+              <Link to="/datenschutz" className="text-sm text-gray-500 hover:text-[#d4af37] transition-colors duration-300">
                 Datenschutz
-              </a>
+              </Link>
             </div>
           </div>
         </div>

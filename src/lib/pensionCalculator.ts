@@ -1,5 +1,5 @@
 // RENTENLÜCKENRECHNER RECHENKERN
-export type Mode = "employee" | "versorgungswerk";
+export type Mode = "employee" | "versorgungswerk" | "selfEmployed";
 export type YesNo = "yes" | "no";
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
@@ -101,6 +101,12 @@ export interface PensionInput {
     healthGrowthPct: number;
     kvdr: YesNo;
     pkvPremium: number;
+  };
+  selfEmployedGrv?: {
+    enabled: boolean;
+    hasNotice: YesNo;
+    noticeTiming: "current" | "retirement";
+    noticeAmount: number;
   };
 }
 
@@ -215,7 +221,38 @@ export function calculatePensionGap(input: PensionInput): PensionResult {
   let pensionNetNominalKpi = 0;
   let pensionNetNominalChart = 0;
 
-  if (input.mode === "employee") {
+  if (input.mode === "selfEmployed") {
+    const grv = input.selfEmployedGrv;
+    if (grv?.enabled) {
+      // Self-employed WITH GRV: calculate statutory pension
+      let selfGrossAtRet = 0;
+      if (grv.hasNotice === "yes" && grv.noticeAmount > 0) {
+        // Use notice amount
+        selfGrossAtRet = grv.noticeTiming === "current"
+          ? grv.noticeAmount * pow1p(RENTENWERT_GROWTH, yearsToRet)
+          : grv.noticeAmount;
+      } else {
+        // Use employee-style EP calculation
+        selfGrossAtRet = statutoryGrossAtRet;
+      }
+      // Apply same tax/KV deductions as employee
+      const selfKvDeduction = selfGrossAtRet * kvRateOnPension;
+      const selfPkvAtRet = input.pkvPremium * pow1p(MED_INFLATION, yearsToRet);
+      const selfAnnualTaxable = Math.max(0, selfGrossAtRet * 12 * taxableShare);
+      const selfAnnualTax = approxIncomeTaxGermany(selfAnnualTaxable);
+      const selfMonthlyTax = selfAnnualTax / 12;
+      const selfChurchTax = hasChurchTax ? selfMonthlyTax * churchRate : 0;
+      const selfNet = input.healthType === "legal"
+        ? Math.max(0, selfGrossAtRet - selfKvDeduction - selfMonthlyTax - selfChurchTax)
+        : Math.max(0, selfGrossAtRet - selfPkvAtRet - selfMonthlyTax - selfChurchTax);
+      pensionNetNominalKpi = selfNet;
+      pensionNetNominalChart = selfNet;
+    } else {
+      // No GRV: pension = 0
+      pensionNetNominalKpi = 0;
+      pensionNetNominalChart = 0;
+    }
+  } else if (input.mode === "employee") {
     const statutoryNetNominal =
       input.healthType === "legal"
         ? Math.max(0, statutoryGrossAtRet - gkvDeduction - monthlyIncomeTax - monthlyChurchTax)
@@ -308,19 +345,18 @@ export function calculatePensionGap(input: PensionInput): PensionResult {
   const achievedPensionKpi = pensionNetNominalKpi + privatePayoutKpi;
   const gapKpi = Math.max(0, targetInflated - achievedPensionKpi);
 
-  const withdrawalGrowthKpi_m = input.mode === "versorgungswerk" ? infl / 12 : 0;
-  const requiredCapital =
-    input.mode === "versorgungswerk"
-      ? pvGrowingAnnuity(gapKpi, rDecKpi_m, withdrawalGrowthKpi_m, monthsRet)
-      : pvAnnuity(gapKpi, rDecKpi_m, monthsRet);
+  const useGrowingWithdrawal = input.mode === "versorgungswerk";
+  const withdrawalGrowthKpi_m = useGrowingWithdrawal ? infl / 12 : 0;
+  const requiredCapital = useGrowingWithdrawal
+    ? pvGrowingAnnuity(gapKpi, rDecKpi_m, withdrawalGrowthKpi_m, monthsRet)
+    : pvAnnuity(gapKpi, rDecKpi_m, monthsRet);
 
   const requiredSavingNowDynamic = pmtForFV(requiredCapital, rAccKpi_m, monthsToRet);
 
   const gapKpiBaseline = Math.max(0, targetInflated - pensionNetNominalKpi);
-  const requiredCapitalBaseline =
-    input.mode === "versorgungswerk"
-      ? pvGrowingAnnuity(gapKpiBaseline, rDecKpi_m, withdrawalGrowthKpi_m, monthsRet)
-      : pvAnnuity(gapKpiBaseline, rDecKpi_m, monthsRet);
+  const requiredCapitalBaseline = useGrowingWithdrawal
+    ? pvGrowingAnnuity(gapKpiBaseline, rDecKpi_m, withdrawalGrowthKpi_m, monthsRet)
+    : pvAnnuity(gapKpiBaseline, rDecKpi_m, monthsRet);
 
   const requiredSavingNowBaseline = pmtForFV(requiredCapitalBaseline, rAccKpi_m, monthsToRet);
   const delayed = (delayYears: number) => pmtForFV(requiredCapitalBaseline, rAccKpi_m, monthsToRet - delayYears * 12);

@@ -1,14 +1,13 @@
-import { useState, useMemo, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useState, useMemo, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 import { Slider } from "@/components/ui/Slider";
 import { Toggle } from "@/components/ui/Toggle";
 import { Accordion } from "@/components/ui/Accordion";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { DatePicker } from "@/components/ui/DatePicker";
 import {
   simulateDepotVsPolice,
   type YesNo,
@@ -25,247 +24,12 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
-import { Calendar, ChevronLeft, ChevronRight, TrendingUp, Shield, Wallet, ArrowRightLeft, Info, ChevronDown, ChevronUp, ArrowUp, FileText } from "lucide-react";
+import { TrendingUp, Shield, Wallet, ArrowRightLeft, ChevronDown, ChevronUp, ArrowUp, FileText } from "lucide-react";
 import { PdfRequestModal, PdfRequestData } from "@/components/ui/PdfRequestModal";
-import { generateSimplePdf } from "@/lib/pdfGenerator";
-
+import { generateDepotPolicePdf } from "@/lib/depotPolicePdfGenerator";
+import { captureLead } from "@/lib/leadCapture";
 const formatCurrency = (n: number | undefined) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n ?? 0);
-
-const formatDate = (date: Date): string => {
-  const day = date.getDate().toString().padStart(2, '0');
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const year = date.getFullYear();
-  return `${day}.${month}.${year}`;
-};
-
-const parseDate = (str: string): Date | null => {
-  // Parse DD.MM.YYYY or YYYY-MM-DD
-  if (str.includes('.')) {
-    const parts = str.split('.');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const year = parseInt(parts[2], 10);
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        return new Date(year, month, day);
-      }
-    }
-  } else if (str.includes('-')) {
-    const date = new Date(str);
-    if (!isNaN(date.getTime())) return date;
-  }
-  return null;
-};
-
-// Custom DatePicker Component
-// Custom DatePicker Component
-function CustomDatePicker({
-  value,
-  onChange,
-  label
-}: {
-  value: Date;
-  onChange: (date: Date) => void;
-  label: string;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [inputValue, setInputValue] = useState(formatDate(value));
-  const [viewDate, setViewDate] = useState(value);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Portal positioning state
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    setInputValue(formatDate(value));
-  }, [value]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const updatePosition = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setPosition({
-          top: rect.bottom + window.scrollY,
-          left: rect.left + window.scrollX,
-          width: rect.width,
-        });
-      }
-    };
-
-    updatePosition();
-    window.addEventListener("scroll", updatePosition, true);
-    window.addEventListener("resize", updatePosition);
-
-    return () => {
-      window.removeEventListener("scroll", updatePosition, true);
-      window.removeEventListener("resize", updatePosition);
-    };
-  }, [isOpen]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && containerRef.current.contains(e.target as Node)) {
-        return;
-      }
-
-      const portal = document.getElementById(`datepicker-portal-${label.replace(/\s+/g, '-').toLowerCase()}`);
-      if (portal && portal.contains(e.target as Node)) {
-        return;
-      }
-
-      setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [label]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInputValue(val);
-    const parsed = parseDate(val);
-    if (parsed) {
-      onChange(parsed);
-      setViewDate(parsed);
-    }
-  };
-
-  const handleInputBlur = () => {
-    const parsed = parseDate(inputValue);
-    if (parsed) {
-      onChange(parsed);
-    } else {
-      setInputValue(formatDate(value));
-    }
-  };
-
-  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
-  const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
-  const adjustedFirstDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
-
-  const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
-  const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
-
-  const selectDate = (day: number) => {
-    const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
-    onChange(newDate);
-    setInputValue(formatDate(newDate));
-    setIsOpen(false);
-  };
-
-  const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-  const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-
-  const years = Array.from({ length: 80 }, (_, i) => 1950 + i);
-
-  const portalId = `datepicker-portal-${label.replace(/\s+/g, '-').toLowerCase()}`;
-
-  return (
-    <div ref={containerRef} className="relative">
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      <div className="relative">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={handleInputChange}
-          onBlur={handleInputBlur}
-          onFocus={() => setIsOpen(true)}
-          placeholder="TT.MM.JJJJ"
-          className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#059669]/20 focus:border-[#059669] transition-all"
-        />
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-[#059669] transition-colors"
-        >
-          <Calendar className="w-4 h-4" />
-        </button>
-      </div>
-
-      {isOpen && position && createPortal(
-        <div
-          id={portalId}
-          className="absolute z-[9999] mt-1 bg-white rounded-xl shadow-xl border border-gray-200 p-3 w-[280px]"
-          style={{
-            top: position.top,
-            left: position.left,
-            width: Math.max(280, position.width),
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between mb-3">
-            <button onClick={prevMonth} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <div className="flex gap-1">
-              <select
-                value={viewDate.getMonth()}
-                onChange={(e) => setViewDate(new Date(viewDate.getFullYear(), parseInt(e.target.value), 1))}
-                className="text-sm font-medium bg-transparent border-none focus:ring-0 cursor-pointer"
-              >
-                {months.map((m, i) => (
-                  <option key={m} value={i}>{m}</option>
-                ))}
-              </select>
-              <select
-                value={viewDate.getFullYear()}
-                onChange={(e) => setViewDate(new Date(parseInt(e.target.value), viewDate.getMonth(), 1))}
-                className="text-sm font-medium bg-transparent border-none focus:ring-0 cursor-pointer"
-              >
-                {years.map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-            <button onClick={nextMonth} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Weekdays */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {weekdays.map((d) => (
-              <div key={d} className="text-center text-xs font-medium text-gray-400 py-1">{d}</div>
-            ))}
-          </div>
-
-          {/* Days */}
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: adjustedFirstDay }).map((_, i) => (
-              <div key={`empty-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day = i + 1;
-              const isSelected = value.getDate() === day &&
-                value.getMonth() === viewDate.getMonth() &&
-                value.getFullYear() === viewDate.getFullYear();
-
-              return (
-                <button
-                  key={day}
-                  onClick={() => selectDate(day)}
-                  className={`
-                    w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all
-                    ${isSelected
-                      ? 'bg-[#059669] text-white font-medium shadow-md shadow-[#059669]/20'
-                      : 'text-gray-700 hover:bg-gray-100'
-                    }
-                  `}
-                >
-                  {day}
-                </button>
-              );
-            })}
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
 
 export function DepotPolicePage() {
   // Disable body scroll on desktop
@@ -289,17 +53,19 @@ export function DepotPolicePage() {
   }, []);
 
   // Person
-  const [dob, setDob] = useState(new Date(1985, 5, 15));
+  const [dob, setDob] = useState(new Date(2001, 0, 15));
   const [retirementAge, setRetirementAge] = useState(67);
 
   // Investment
-  const [monthlyContribution, setMonthlyContribution] = useState(500);
-  const [initialCapital, setInitialCapital] = useState(10000);
+  const [monthlyContribution, setMonthlyContribution] = useState(0);
+  const [initialCapital, setInitialCapital] = useState(0);
   const [contributionGrowthPct, setContributionGrowthPct] = useState(0);
 
   // Returns & Tax
   const [annualReturnPct, setAnnualReturnPct] = useState(7.5);
-  const [abgeltungTaxPct, setAbgeltungTaxPct] = useState(26.375);
+  const [includeSoli, setIncludeSoli] = useState(true);
+  const [includeKirchensteuer, setIncludeKirchensteuer] = useState(false);
+  const abgeltungTaxPct = 25 + (includeSoli ? 1.375 : 0) + (includeKirchensteuer ? 2.25 : 0);
   const [basiszinsPct, setBasiszinsPct] = useState(2.55);
   const [allowanceEUR, setAllowanceEUR] = useState(1000);
   const [partialExemptionKind, setPartialExemptionKind] = useState<PartialExemptionKind>("equity");
@@ -309,20 +75,20 @@ export function DepotPolicePage() {
   const [switchEveryYears, setSwitchEveryYears] = useState(7);
 
   // Depot Costs
-  const [depotEffectiveCostPct, setDepotEffectiveCostPct] = useState(1.8);
+  const [depotEffectiveCostPct, setDepotEffectiveCostPct] = useState(0.9);
   const [depotSwitchSellPct, setDepotSwitchSellPct] = useState(0.5);
   const [depotSwitchBuyPct, setDepotSwitchBuyPct] = useState(0.5);
 
   // Policy Costs
-  const [policyAcqPeriodYears, setPolicyAcqPeriodYears] = useState(5);
-  const [policyAcqCostPct, setPolicyAcqCostPct] = useState(2.5);
-  const [policyAdminCostType, setPolicyAdminCostType] = useState<"falling" | "constant">("falling");
-  const [policyAdminFirstYearPct, setPolicyAdminFirstYearPct] = useState(13.44);
-  const [policyAdminLastYearPct, setPolicyAdminLastYearPct] = useState(5.33);
-  const [policyAssetBasedAdminPct, setPolicyAssetBasedAdminPct] = useState(0.2);
-  const [policyPieceCostEUR, setPolicyPieceCostEUR] = useState(3);
-  const [policyOneTimeCostPct, setPolicyOneTimeCostPct] = useState(0);
-  const [policyContractStartOneTimeEUR, setPolicyContractStartOneTimeEUR] = useState(0);
+  const [policyAcqPeriodYears] = useState(5);
+  const [policyAcqCostPct] = useState(0.6);
+  const [policyAdminCostType] = useState<"falling" | "constant">("falling");
+  const [policyAdminFirstYearPct] = useState(5.42);
+  const [policyAdminLastYearPct] = useState(3.42);
+  const [policyAssetBasedAdminPct] = useState(0);
+  const [policyPieceCostEUR] = useState(12);
+  const [policyOneTimeCostPct] = useState(0);
+  const [policyContractStartOneTimeEUR] = useState(0);
 
   // Modals
   const [showDepotModal, setShowDepotModal] = useState(false);
@@ -333,8 +99,6 @@ export function DepotPolicePage() {
   const [showInvestmentDetails, setShowInvestmentDetails] = useState(false);
   const [showTaxDetails, setShowTaxDetails] = useState(false);
 
-  // Health (placeholder)
-  const [healthType, setHealthType] = useState<"legal" | "private">("private");
 
   const result = useMemo(() => {
     const today = new Date();
@@ -364,28 +128,56 @@ export function DepotPolicePage() {
         adminCostFirstYearPct: policyAdminFirstYearPct,
         adminCostLastYearPct: policyAdminLastYearPct,
         assetBasedAdminPct: policyAssetBasedAdminPct,
-        pieceCostEUR: policyPieceCostEUR,
+        pieceCostEUR: policyPieceCostEUR / 12,
         oneTimePaymentCostPct: policyOneTimeCostPct,
         contractStartOneTimeEUR: policyContractStartOneTimeEUR,
       },
     });
   }, [
     dob, retirementAge, monthlyContribution, initialCapital, contributionGrowthPct,
-    annualReturnPct, abgeltungTaxPct, basiszinsPct, allowanceEUR, partialExemptionKind,
+    annualReturnPct, includeSoli, includeKirchensteuer, basiszinsPct, allowanceEUR, partialExemptionKind,
     switchSimulation, switchEveryYears, depotEffectiveCostPct, depotSwitchSellPct, depotSwitchBuyPct,
     policyAcqPeriodYears, policyAcqCostPct, policyAdminCostType, policyAdminFirstYearPct,
     policyAdminLastYearPct, policyAssetBasedAdminPct, policyPieceCostEUR, policyOneTimeCostPct,
     policyContractStartOneTimeEUR,
   ]);
 
-  const handlePdfGenerate = (reqData: PdfRequestData) => {
-    const calcData = result ? {
-      "Endkapital Depot (Prognose)": formatCurrency(result.finalDepot),
-      "Endkapital Police (Prognose)": formatCurrency(result.finalPolicy),
-      "Vorteil": formatCurrency(Math.abs(result.deltaPolicyVsDepot)),
-      "Jahre bis Rente": `${result.yearsToRetirement} Jahre`,
-    } : undefined;
-    generateSimplePdf(reqData, "Depot vs Police", calcData);
+  const handlePdfGenerate = async (reqData: PdfRequestData) => {
+    if (result) {
+      const today = new Date();
+      const { blob, fileName } = await generateDepotPolicePdf(reqData, {
+        dob,
+        today,
+        retirementAge,
+        monthlyContribution,
+        initialCapital,
+        contributionGrowthPct,
+        annualReturnPct,
+        abgeltungTaxPct,
+        basiszinsPct,
+        allowanceEUR,
+        partialExemptionKind,
+        switchSimulation,
+        switchEveryYears,
+        depotCosts: {
+          effectiveCostPct: depotEffectiveCostPct,
+          switchSellPct: depotSwitchSellPct,
+          switchBuyPct: depotSwitchBuyPct,
+        },
+        policyCosts: {
+          acquisitionPeriodYears: policyAcqPeriodYears,
+          acquisitionCostPct: policyAcqCostPct,
+          adminCostType: policyAdminCostType,
+          adminCostFirstYearPct: policyAdminFirstYearPct,
+          adminCostLastYearPct: policyAdminLastYearPct,
+          assetBasedAdminPct: policyAssetBasedAdminPct,
+          pieceCostEUR: policyPieceCostEUR / 12,
+          oneTimePaymentCostPct: policyOneTimeCostPct,
+          contractStartOneTimeEUR: policyContractStartOneTimeEUR,
+        },
+      }, result);
+      captureLead(reqData, blob, fileName, "depot-vs-privatrente");
+    }
   };
 
   // Calculate effective tax rate with church tax
@@ -403,7 +195,7 @@ export function DepotPolicePage() {
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 depot-scroll pb-4">
               <Accordion title="Angaben zur Person" defaultOpen>
                 <div className="space-y-4 pt-3">
-                  <CustomDatePicker
+                  <DatePicker
                     label="Geburtsdatum"
                     value={dob}
                     onChange={setDob}
@@ -478,29 +270,34 @@ export function DepotPolicePage() {
 
                   {showTaxDetails && (
                     <div className="space-y-4 pl-2 border-l-2 border-[#059669]/10 animate-in slide-in-from-top-2 fade-in duration-200">
-                      <Slider
-                        label="Abgeltungssteuer"
-                        valueLabel={`${abgeltungTaxPct.toFixed(2)}%`}
-                        min={0}
-                        max={30}
-                        step={0.125}
-                        value={abgeltungTaxPct}
-                        onChange={(e) => setAbgeltungTaxPct(parseFloat(e.target.value))}
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-700">Abgeltungssteuer</span>
+                          <span className="text-xs font-bold text-gray-900">25,00%</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400">Gesetzlich festgelegt</p>
+                      </div>
+                      <Toggle
+                        checked={includeSoli}
+                        onChange={setIncludeSoli}
+                        label="Solidaritätszuschlag (5,5%)"
                       />
-                      <Slider
-                        label="Basiszins"
-                        valueLabel={`${basiszinsPct}%`}
-                        min={0}
-                        max={5}
-                        step={0.05}
-                        value={basiszinsPct}
-                        onChange={(e) => setBasiszinsPct(parseFloat(e.target.value))}
+                      <Toggle
+                        checked={includeKirchensteuer}
+                        onChange={setIncludeKirchensteuer}
+                        label="Kirchensteuer (9%)"
                       />
                       <Input
                         label="Freibetrag"
                         type="number"
                         value={allowanceEUR}
-                        onChange={(e) => setAllowanceEUR(parseFloat(e.target.value) || 0)}
+                        onChange={(e) => {
+                          let val = parseFloat(e.target.value) || 0;
+                          if (val > 1000) val = 1000;
+                          if (val < 0) val = 0;
+                          setAllowanceEUR(val);
+                        }}
+                        max={1000}
                         suffix="€"
                       />
                     </div>
@@ -508,23 +305,7 @@ export function DepotPolicePage() {
                 </div>
               </Accordion>
 
-              <Accordion title="Angaben zur Krankenversicherung">
-                <div className="space-y-4 pt-3">
-                  <Select
-                    label="Krankenversicherung"
-                    value={healthType}
-                    onChange={(e) => setHealthType(e.target.value as "legal" | "private")}
-                    options={[
-                      { value: "private", label: "Privat" },
-                      { value: "legal", label: "Gesetzlich" },
-                    ]}
-                  />
-                  <p className="text-xs text-gray-500 bg-amber-50 p-2 rounded-lg">
-                    <Info className="w-3 h-3 inline mr-1" />
-                    KV-Beiträge werden in dieser Simulation nicht berücksichtigt.
-                  </p>
-                </div>
-              </Accordion>
+              {/* Die Angaben zur Krankenversicherung wurden absichtlich entfernt */}
 
               <Accordion title="Investitionswunsch" defaultOpen>
                 <div className="space-y-4 pt-3">
@@ -568,15 +349,8 @@ export function DepotPolicePage() {
               </Accordion>
             </div>
 
-            <div className="pt-2 pb-2 border-t border-gray-100 flex-shrink-0 bg-white">
-              <Button
-                variant="primary"
-                className="w-full justify-center py-3"
-                onClick={() => setShowPdfRequestModal(true)}
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                PDF erstellen
-              </Button>
+            <div className="pt-2 pb-2 flex-shrink-0 bg-white">
+              {/* PDF Button shifted to right column */}
             </div>
           </div>
 
@@ -616,10 +390,10 @@ export function DepotPolicePage() {
               </div>
 
               {/* Chart - Takes remaining space */}
-              <div className="flex-1 min-h-0 p-4">
-                <div className="h-full">
+              <div className="w-full h-[550px] lg:flex-1 lg:h-auto lg:min-h-0 px-0 sm:px-4 py-4">
+                <div className="w-full h-full -ml-3 sm:ml-0">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={result.points} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                    <LineChart data={result.points} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis
                         dataKey="year"
@@ -793,7 +567,7 @@ export function DepotPolicePage() {
                     <span className="text-lg font-bold text-[#2563eb]">{effectiveTaxRate.toFixed(2)}%</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    inkl. Soli (5,5%) {abgeltungTaxPct > 26 ? '+ Kirchensteuer' : ''}
+                    {includeSoli && includeKirchensteuer ? 'inkl. Soli + Kirchensteuer' : includeSoli ? 'inkl. Soli (5,5%)' : includeKirchensteuer ? 'inkl. Kirchensteuer (9%)' : 'nur Abgeltungssteuer'}
                   </p>
                 </div>
 
@@ -805,10 +579,10 @@ export function DepotPolicePage() {
                       Depot
                     </h4>
                     <ul className="text-xs text-gray-600 space-y-1">
-                      <li>• Vorabpauschale jährlich versteuern</li>
-                      <li>• Abgeltungssteuer auf alle Gewinne</li>
-                      <li>• Teilfreistellung: {partialExemptionKind === 'equity' ? '30%' : partialExemptionKind === 'mixed' ? '15%' : '60%'}</li>
-                      <li>• Fondswechsel = steuerpflichtig</li>
+                      <li>• Besteuerung in der Ansparphase</li>
+                      <li>• Kapitalerträge: Abgeltungssteuer</li>
+                      <li>• Umschichtungen lösen Steuer aus</li>
+                      <li>• Steuern fallen laufend an</li>
                     </ul>
                   </div>
 
@@ -818,10 +592,10 @@ export function DepotPolicePage() {
                       Police
                     </h4>
                     <ul className="text-xs text-gray-600 space-y-1">
-                      <li>• Steuerstundung während Laufzeit</li>
-                      <li>• Halbeinkünfteverfahren ab 62 J.</li>
-                      <li>• Nach 12 Jahren nur 50% versteuern</li>
-                      <li>• Fondswechsel = steuerneutral</li>
+                      <li>• Keine Steuer in der Ansparphase</li>
+                      <li>• Fondswechsel steuerneutral möglich</li>
+                      <li>• Ab 62 J. / nach 12 J.: 50% steuerfrei</li>
+                      <li>• Bestandsschutz für Steuervorteile</li>
                     </ul>
                   </div>
                 </div>
@@ -911,18 +685,41 @@ export function DepotPolicePage() {
                 </div>
               </div>
             </div>
+
+            {/* ============ VIDEO & CTA SECTION ============ */}
+            <div className="pt-2">
+              <Button
+                variant="primary"
+                className="w-full justify-center py-4 font-bold shadow-lg"
+                onClick={() => setShowPdfRequestModal(true)}
+              >
+                <FileText className="w-5 h-5 mr-2" />
+                Deinen Vergleich erhalten
+              </Button>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-center mt-6">
+              <h3 className="text-2xl lg:text-lg font-bold text-[#0f172a] mb-4">Erfahre mehr im Video</h3>
+              <div className="w-full aspect-[9/16] rounded-xl overflow-hidden shadow-inner border-2 border-gray-100">
+                <video
+                  className="w-full h-full object-cover"
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src="/video-depot.mp4#t=0.001"
+                />
+              </div>
+              <div className="mt-6">
+                <a href="https://outlook.office.com/bookwithme/user/359c7d5667e74b6b97800e6f681c3a29%40horbach.de/meetingtype/GUOy31G5NEWyOmoXzR4T8g2?anonymous&ismsaljsauthenabled=true" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-sm font-bold rounded-xl shadow-md hover:-translate-y-0.5 transition-all duration-300 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700">
+                  Jetzt Beratung anfragen
+                </a>
+              </div>
+            </div>
           </div>
         </div>
 
 
       </div>
-
-      <PdfRequestModal
-        isOpen={showPdfRequestModal}
-        onClose={() => setShowPdfRequestModal(false)}
-        onGenerate={(data) => generateSimplePdf(data, "Depot vs Police")}
-        title="Vergleich laden"
-      />
 
       {/* Depot Costs Modal */}
       <Modal
@@ -971,100 +768,54 @@ export function DepotPolicePage() {
         title="Police Kostenstruktur"
       >
         <div className="space-y-4">
-          <Input
-            label="Abschlusskosten-Zeitraum (Jahre)"
-            type="number"
-            value={policyAcqPeriodYears}
-            onChange={(e) => setPolicyAcqPeriodYears(parseInt(e.target.value) || 1)}
-          />
-          <Slider
-            label="Abschlusskosten"
-            valueLabel={`${policyAcqCostPct}%`}
-            min={0}
-            max={10}
-            step={0.5}
-            value={policyAcqCostPct}
-            onChange={(e) => setPolicyAcqCostPct(parseFloat(e.target.value))}
-          />
-          <Select
-            label="Verwaltungskosten-Typ"
-            value={policyAdminCostType}
-            onChange={(e) => setPolicyAdminCostType(e.target.value as "falling" | "constant")}
-            options={[
-              { value: "falling", label: "Fallend" },
-              { value: "constant", label: "Konstant" },
-            ]}
-          />
-          {policyAdminCostType === "falling" && (
-            <>
-              <Slider
-                label="Verwaltungskosten 1. Jahr"
-                valueLabel={`${policyAdminFirstYearPct}%`}
-                min={0}
-                max={10}
-                step={0.5}
-                value={policyAdminFirstYearPct}
-                onChange={(e) => setPolicyAdminFirstYearPct(parseFloat(e.target.value))}
-              />
-              <Slider
-                label="Verwaltungskosten letztes Jahr"
-                valueLabel={`${policyAdminLastYearPct}%`}
-                min={0}
-                max={5}
-                step={0.25}
-                value={policyAdminLastYearPct}
-                onChange={(e) => setPolicyAdminLastYearPct(parseFloat(e.target.value))}
-              />
-            </>
-          )}
-          {policyAdminCostType === "constant" && (
-            <Slider
-              label="Verwaltungskosten p.a."
-              valueLabel={`${policyAdminLastYearPct}%`}
-              min={0}
-              max={5}
-              step={0.25}
-              value={policyAdminLastYearPct}
-              onChange={(e) => setPolicyAdminLastYearPct(parseFloat(e.target.value))}
-            />
-          )}
-          <Slider
-            label="Fondskosten"
-            valueLabel={`${policyAssetBasedAdminPct}%`}
-            min={0}
-            max={2}
-            step={0.1}
-            value={policyAssetBasedAdminPct}
-            onChange={(e) => setPolicyAssetBasedAdminPct(parseFloat(e.target.value))}
-          />
-          <Input
-            label="Stückkosten pro Monat"
-            type="number"
-            value={policyPieceCostEUR}
-            onChange={(e) => setPolicyPieceCostEUR(parseFloat(e.target.value) || 0)}
-            suffix="€"
-          />
-          <Slider
-            label="Einmalzahlung-Kosten"
-            valueLabel={`${policyOneTimeCostPct}%`}
-            min={0}
-            max={10}
-            step={0.5}
-            value={policyOneTimeCostPct}
-            onChange={(e) => setPolicyOneTimeCostPct(parseFloat(e.target.value))}
-          />
-          <Input
-            label="Einmalige Vertragskosten"
-            type="number"
-            value={policyContractStartOneTimeEUR}
-            onChange={(e) => setPolicyContractStartOneTimeEUR(parseFloat(e.target.value) || 0)}
-            suffix="€"
-          />
+          <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-3">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Abschlusskosten Zeitraum</span>
+              <span className="font-semibold text-gray-900">{policyAcqPeriodYears} Jahre</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Abschlusskosten</span>
+              <span className="font-semibold text-gray-900">{policyAcqCostPct.toFixed(2)}%</span>
+            </div>
+            
+            <div className="h-px bg-gray-200 my-2" />
+            
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Verwaltungskosten 1. Jahr</span>
+              <span className="font-semibold text-gray-900">{policyAdminFirstYearPct.toFixed(2)}%</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Verwaltungskosten ab 10. Jahr</span>
+              <span className="font-semibold text-gray-900">{policyAdminLastYearPct.toFixed(2)}%</span>
+            </div>
+            
+            <div className="h-px bg-gray-200 my-2" />
+            
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Fondskosten (TER)</span>
+              <span className="font-semibold text-gray-900">{(policyAssetBasedAdminPct + 0.2).toFixed(2)}%</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Stückkosten p.a.</span>
+              <span className="font-semibold text-gray-900">{formatCurrency(policyPieceCostEUR)}</span>
+            </div>
+          </div>
+          
+          <div className="p-3 bg-blue-50/50 rounded-lg border-l-4 border-blue-500 text-xs text-gray-600 mt-2">
+            Die Kostenstruktur ist auf ein gängiges Marktmodell fest vorkonfiguriert, um eine realistische Vergleichbarkeit zu gewährleisten.
+          </div>
           <Button className="w-full mt-4" onClick={() => setShowPolicyModal(false)}>
             Schließen
           </Button>
         </div>
       </Modal>
+
+      <PdfRequestModal
+        isOpen={showPdfRequestModal}
+        onClose={() => setShowPdfRequestModal(false)}
+        onGenerate={handlePdfGenerate}
+        title="Depot vs. Privatrente laden"
+      />
 
       <style>{`
         .depot-scroll::-webkit-scrollbar {
